@@ -1,8 +1,7 @@
 /**
- * Testing utilities — `@xtandard/audit/testing`.
- *
- * Everything a host app (or this package's own suite) needs to test its audit
- * wiring without a database, timers or the network:
+ * Testing utilities: an in-memory core, a collecting sink and assertions, so a
+ * host app (or this package's own suite) can test its audit wiring without a
+ * database, timers or the network.
  *
  * - {@link createTestAudit}: an in-memory core, a {@link collectingSink}
  *   behind a **not-started** stream runner (drive it with `flush()`), an
@@ -11,6 +10,8 @@
  *   programmable failures to exercise the stream retry path.
  * - {@link expectRecorded} / {@link expectNotRecorded}: framework-agnostic
  *   assertions (they throw a descriptive `Error`) over what a core recorded.
+ *
+ * Import from `@xtandard/audit/testing`.
  *
  * @module testing
  */

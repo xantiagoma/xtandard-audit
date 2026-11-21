@@ -31,11 +31,19 @@ Heavy jobs (full suites, coverage, tsc, builds, docs:build, Playwright) go throu
   `site/scripts/sync.ts` copies them into `site/src/content/docs/` (generated, gitignored); README
   sections become pages per `site/manifest.ts` — so **renaming an H2 in `README.md` that the
   manifest lists, or adding/renaming a file in `docs/`, needs `site/manifest.ts` updated** (sync
-  fails loudly otherwise). Relative links between docs are rewritten to site routes.
-- Site-only pages (the home page) live in `site/content/`.
+  fails loudly otherwise). Relative links between docs are rewritten to site routes. Every
+  `docs/ADR/NNNN-*.md` becomes a page by itself (short sidebar labels in `adrLabels`). A guide
+  still being written elsewhere is a `pending` manifest entry (today only `CHANGELOG.md`, which
+  changelogen writes on the first release): left out, with links to it going to GitHub, until the
+  file exists.
+- Site-only pages (the home page) live in `site/content/`. Branding (docs/BRAND.md): the
+  horizontal lockups in the header, the favicon set and `social.png` as `og:image`; sync copies
+  those files from `docs/assets/` into `site/public/` (gitignored), and the palette is
+  `site/src/styles/brand.css`.
 - The API reference is generated from `src/` by starlight-typedoc, one module per `exports` entry
   in `package.json` (`entries()` in `site/manifest.ts`). Each entry file (`src/index.ts`,
   `src/core.ts`, `src/entry-*.ts`, …) starts with a `@module <name>` doc comment that names and
   describes its page; `site/scripts/api-overviews.ts` writes `/api/` and `/api/<module>/`.
-- `bun run docs:dev` / `docs:build` / `docs:preview`. Astro runs under Bun (`bun --bun astro …`);
-  `.mdx` is excluded from `vp fmt` (it mangles MDX). The build fails on any broken internal link.
+- `bun run docs:dev` / `docs:build` / `docs:preview` (port 4326). Astro runs under Bun
+  (`bun --bun astro …`); `.mdx` is excluded from `vp fmt` (it mangles MDX). The build fails on
+  any broken internal link.

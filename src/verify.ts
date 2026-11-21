@@ -1,7 +1,7 @@
 /**
- * `@xtandard/audit/verify` — the zero-dependency verifier for auditors and
- * customers: re-derive every hash of an exported log, check its links, and
- * verify the signed checkpoints, with nothing but Web Crypto (ADR 0004).
+ * The zero-dependency verifier for auditors and customers: re-derive every hash
+ * of an exported log, check its links, and verify the signed checkpoints, with
+ * nothing but Web Crypto (ADR 0004).
  *
  * @example
  * ```ts
@@ -10,6 +10,8 @@
  * const report = await verifyBundle(await Bun.file("acme.audit.jsonl").text());
  * console.log(report.ok ? `verified ${report.checked} events` : report.issues);
  * ```
+ *
+ * Import from `@xtandard/audit/verify`.
  *
  * @module verify
  */
