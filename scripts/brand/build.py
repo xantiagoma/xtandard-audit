@@ -173,10 +173,13 @@ def build_favicon():
 
 
 def build_symbol():
-    write(
-        "symbol.svg",
-        header(BW, BH) + f"<defs>{lime_grad('lime', LIME_SYMBOL_DARK)}</defs>\n" + symbol(0, 0, 1) + "</svg>\n",
-    )
+    # symbol.svg: lime for dark surfaces; symbol-light.svg: the light lockup's deeper lime, so
+    # light themes can show the bare symbol (no ink tile behind it).
+    for name, stops in (("symbol.svg", LIME_SYMBOL_DARK), ("symbol-light.svg", LIME_SYMBOL_LIGHT)):
+        write(
+            name,
+            header(BW, BH) + f"<defs>{lime_grad('lime', stops)}</defs>\n" + symbol(0, 0, 1) + "</svg>\n",
+        )
 
 
 # ---------------------------------------------------------------- wordmark + lockups

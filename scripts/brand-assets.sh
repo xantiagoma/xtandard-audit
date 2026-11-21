@@ -1,7 +1,9 @@
 #!/bin/sh
-# Rebuilds every brand raster in docs/assets/ from the SVG masters next to
+# Rebuilds the few brand rasters in docs/assets/ from the SVG masters next to
 # them, and copies the admin UI's brand files into src/ui/brand/
-# (docs/BRAND.md).
+# (docs/BRAND.md). Everything people see as a logo uses the SVGs; rasters exist
+# only where a format requires one: the og:image card (social.png) and the
+# <head> fallbacks (favicon.ico, apple-touch-icon.png).
 #
 #   sh scripts/brand-assets.sh           rebuild (bun run brand:assets)
 #   sh scripts/brand-assets.sh --check   fail when a raster or master is
@@ -22,21 +24,12 @@ ui=src/ui/brand
 
 # target master [rsvg-convert args...]: every raster and the master it comes from.
 rasters='
-logo.png logo.svg -w 1024 -h 1024
-logo-256.png logo.svg -w 256 -h 256
-logo-128.png logo.svg -w 128 -h 128
 apple-touch-icon.png logo.svg
-symbol.png symbol.svg -h 256
-lockup-horizontal-dark.png lockup-horizontal-dark.svg -z 2
-lockup-horizontal-light.png lockup-horizontal-light.svg -z 2
-lockup-stacked-dark.png lockup-stacked-dark.svg -z 2
-lockup-stacked-light.png lockup-stacked-light.svg -z 2
 social.png social.svg -w 1280 -h 640
-favicon.png favicon.svg -w 32 -h 32
 favicon.ico favicon.svg
 '
 # The admin SPA bundles these (the UI worker wires them in).
-uifiles='favicon.svg symbol.svg'
+uifiles='favicon.svg symbol.svg symbol-light.svg'
 
 if [ "${1:-}" = "--check" ]; then
   status=0
@@ -84,7 +77,7 @@ done
 
 if command -v oxipng >/dev/null; then
   # -o 4 rather than max: near-identical sizes at a fraction of the CPU.
-  oxipng -q -o 4 --strip safe "$a"/*.png
+  oxipng -q -o 4 --strip safe "$a/apple-touch-icon.png" "$a/social.png"
 else
   echo "brand-assets: oxipng not found, PNGs left unoptimised" >&2
 fi

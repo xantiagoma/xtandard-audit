@@ -17,6 +17,7 @@ import { can } from "./lib/format.ts";
 import { cn } from "./lib/utils.ts";
 import { canLeave } from "./lib/nav-guard.ts";
 import symbolUrl from "./brand/symbol.svg";
+import symbolLightUrl from "./brand/symbol-light.svg";
 
 interface NavTab {
   path: string;
@@ -246,11 +247,9 @@ function AppShell({
               />
             ) : (
               <>
-                {/* The lime symbol is drawn for dark surfaces: keep it on an ink
-                    chip so it reads in both themes (docs/BRAND.md). */}
-                <span className="inline-flex size-7 items-center justify-center rounded-md bg-[#101113]">
-                  <img src={symbolUrl} alt="" aria-hidden className="size-[18px]" />
-                </span>
+                {/* The bare symbol (SVG, no tile), in each theme's lime (docs/BRAND.md). */}
+                <img src={symbolLightUrl} alt="" aria-hidden className="h-6 w-auto dark:hidden" />
+                <img src={symbolUrl} alt="" aria-hidden className="hidden h-6 w-auto dark:block" />
                 <span className="text-sm font-semibold tracking-tight">{brandTitle}</span>
               </>
             )}
