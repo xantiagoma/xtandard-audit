@@ -77,6 +77,32 @@ describe("createPortalToken / verifyPortalToken", () => {
     expect(claimsOf(token).filter).toBeUndefined();
   });
 
+  test("rejects an empty secret on create and on verify", async () => {
+    await expect(createPortalToken("", "acme")).rejects.toThrow();
+    const token = await createPortalToken(SECRET, "acme");
+    await expect(verifyPortalToken("", token)).rejects.toThrow();
+  });
+
+  test("verifies with any secret of a rotation list; the first one signs", async () => {
+    const old = await createPortalToken("old-secret", "acme");
+    expect((await verifyPortalToken(["new-secret", "old-secret"], old)).tenant).toBe("acme");
+    const fresh = await createPortalToken(["new-secret", "old-secret"], "acme");
+    expect((await verifyPortalToken("new-secret", fresh)).tenant).toBe("acme");
+  });
+
+  test("a token in the v0.1.x field order ({ tenant, exp, filter }) verifies", async () => {
+    const exp = Date.now() + 60_000;
+    const token = await craftToken(
+      SECRET,
+      JSON.stringify({ tenant: "acme", exp, filter: { actorId: "u_1" } }),
+    );
+    expect(await verifyPortalToken(SECRET, token)).toEqual({
+      tenant: "acme",
+      expiresAt: exp,
+      filter: { actorId: "u_1" },
+    });
+  });
+
   test("requires a tenant", async () => {
     await expect(createPortalToken(SECRET, "")).rejects.toThrow(TypeError);
   });
