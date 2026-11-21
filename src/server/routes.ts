@@ -13,6 +13,17 @@
  * @module
  */
 
+import {
+  authenticate,
+  authorize as authorizeWith,
+  error,
+  intParam as kitIntParam,
+  json,
+  mapError as kitMapError,
+  match,
+  noContent,
+  type ErrorMap,
+} from "@xtandard/kit/server";
 import type { AuthProvider, Principal } from "../auth/contract.ts";
 import {
   ALL_ACTIONS,
@@ -21,21 +32,12 @@ import {
   type AuditAction,
   type AuditResource,
 } from "../authorization/contract.ts";
-import {
-  ConflictError,
-  NotFoundError,
-  ReadonlyError,
-  SignerRequiredError,
-  type AuditCore,
-  type EraseInput,
-} from "../core.ts";
+import type { AuditCore, EraseInput } from "../core.ts";
 import { EXPORT_CONTENT_TYPES, exportEvents, type ExportFormat } from "../export.ts";
 import type { HookActor } from "../hooks/contract.ts";
-import { HookDeniedError } from "../hooks/contract.ts";
 import {
   DEFAULT_PORTAL_ACTIONS,
   PORTAL_TOKEN_PREFIX,
-  PortalTokenError,
   portalCanSee,
   scopeQueryToPortal,
   verifyPortalToken,
@@ -49,9 +51,8 @@ import type {
   AuditPage,
   AuditQuery,
 } from "../schema.ts";
-import { ChainConflictError } from "../storage/contract.ts";
 import type { StreamRunner } from "../streams.ts";
-import { ValidationError } from "../validation.ts";
+import { TENANT_REGEX, ValidationError } from "../validation.ts";
 import { buildOpenApiDocument } from "./openapi.ts";
 
 export { DEFAULT_PORTAL_ACTIONS };
@@ -102,17 +103,6 @@ export interface ApiContext {
   streams: StreamRunner | null;
 }
 
-const json = (data: unknown, status = 200, headers?: Record<string, string>): Response =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", ...headers },
-  });
-
-const error = (status: number, message: string, extra?: Record<string, unknown>): Response =>
-  json({ error: message, ...extra }, status);
-
-const noContent = (): Response => new Response(null, { status: 204 });
-
 const EMPTY_PAGE: AuditPage = { items: [], pageInfo: { hasNextPage: false, endCursor: null } };
 
 const EXPORT_FORMATS: readonly ExportFormat[] = ["csv", "json", "jsonl", "bundle"];
@@ -125,25 +115,15 @@ const EXPORT_EXTENSIONS: Record<ExportFormat, string> = {
   bundle: "bundle.jsonl",
 };
 
-/** Match `pattern` (with `:name` segments) against `path`. */
-function match(pattern: string, path: string): Record<string, string> | null {
-  const pp = pattern.split("/").filter(Boolean);
-  const ap = path.split("/").filter(Boolean);
-  if (pp.length !== ap.length) return null;
-  const params: Record<string, string> = {};
-  for (let i = 0; i < pp.length; i++) {
-    const seg = pp[i]!;
-    const val = ap[i]!;
-    if (seg.startsWith(":")) {
-      try {
-        params[seg.slice(1)] = decodeURIComponent(val);
-      } catch {
-        return null;
-      }
-    } else if (seg !== val) return null;
-  }
-  return params;
-}
+/**
+ * Path parameters are re-validated before they reach storage: the native event
+ * tables store tenants and event ids raw, and MySQL's PAD SPACE collation would
+ * match `"acme "` to `"acme"`. A tenant or id that could never have been
+ * recorded is simply not found.
+ */
+const isTenant = (tenant: string): boolean =>
+  tenant.length <= 128 && TENANT_REGEX.test(tenant) && !/^\.+$/.test(tenant);
+const EVENT_ID = /^evt_[0-9A-Za-z]{1,64}$/;
 
 /** The control-plane actor for a principal (hooks + self-audit attribution). */
 function actorFor(principal: Principal): HookActor {
@@ -167,10 +147,11 @@ function listParam(params: URLSearchParams, name: string): string[] | undefined 
 /** Read an integer param; throws {@link QueryError} on a malformed value. */
 function intParam(params: URLSearchParams, name: string): number | undefined {
   const raw = params.get(name);
-  if (raw === null || raw === "") return undefined;
-  const n = Number(raw);
-  if (!Number.isInteger(n)) throw new QueryError(`Invalid ${name}: ${raw}`);
-  return n;
+  try {
+    return kitIntParam(raw, { invalid: "throw", positive: false, name });
+  } catch {
+    throw new QueryError(`Invalid ${name}: ${raw}`);
+  }
 }
 
 /** The query model as URL parameters (docs/HTTP_API.md "Query parameters"). */
@@ -183,6 +164,9 @@ export function parseQueryParams(params: URLSearchParams): AuditQuery {
   for (const k of ["tenant", "actorId", "actorType", "targetType", "targetId"] as const) {
     const v = params.get(k);
     if (v) q[k] = v;
+  }
+  if (q.tenant !== undefined && !isTenant(q.tenant)) {
+    throw new QueryError(`Invalid tenant: ${q.tenant}`);
   }
   const outcome = params.get("outcome");
   if (outcome) {
@@ -258,36 +242,39 @@ export async function handleApiRequest(
   // --- Authentication ---
   // A portal token short-circuits the host's providers entirely: valid →
   // portal-scoped principal; invalid/expired → 401 (never fall back to the
-  // host's auth with an explicitly presented, rejected credential).
-  let principal: Principal | null = null;
-  let grant: PortalGrant | null = null;
-  let portalAllow: ReadonlySet<AuditAction> = new Set();
-  const bearer = request.headers.get("authorization");
-  if (ctx.portal && bearer?.startsWith(`Bearer ${PORTAL_TOKEN_PREFIX}`)) {
-    try {
-      grant = await verifyPortalToken(ctx.portal.secret, bearer.slice("Bearer ".length));
-    } catch (err) {
-      return mapError(err);
-    }
-    principal = {
-      id: `portal:${grant.tenant}`,
-      metadata: {
-        portal: true,
-        tenant: grant.tenant,
-        ...(grant.filter ? { filter: grant.filter } : {}),
-      },
-    };
-    portalAllow = new Set(ctx.portal.allow ?? DEFAULT_PORTAL_ACTIONS);
-  } else {
-    try {
-      principal = await ctx.auth.authenticate(request);
-    } catch (err) {
-      // A throwing auth provider is a backend failure (IdP down, DB error) —
-      // surface it as 500, not a misleading 401. `null` means "no valid
-      // credentials"; an exception means "couldn't decide".
-      return mapError(err);
-    }
+  // host's auth with an explicitly presented, rejected credential). A throwing
+  // auth provider is a backend failure (IdP down, DB error) — surfaced as 500,
+  // not a misleading 401.
+  const portal = ctx.portal;
+  let who: Awaited<ReturnType<typeof authenticate<PortalGrant>>>;
+  try {
+    who = await authenticate<PortalGrant>(request, {
+      auth: ctx.auth,
+      ...(portal
+        ? {
+            scoped: {
+              prefix: PORTAL_TOKEN_PREFIX,
+              verify: (token) => verifyPortalToken(portal.secret, token),
+              principal: (g) => ({
+                id: `portal:${g.tenant}`,
+                metadata: {
+                  portal: true,
+                  tenant: g.tenant,
+                  ...(g.filter ? { filter: g.filter } : {}),
+                },
+              }),
+            },
+          }
+        : {}),
+    });
+  } catch (err) {
+    return mapError(err);
   }
+  const { principal } = who;
+  const grant = who.scoped;
+  const portalAllow: ReadonlySet<AuditAction> = new Set(
+    grant ? (portal?.allow ?? DEFAULT_PORTAL_ACTIONS) : [],
+  );
 
   /** Portal scoping: the token's tenant, its allowed actions, read-only global catalog. */
   const portalPermits = (action: AuditAction, resource: AuditResource): boolean => {
@@ -307,8 +294,11 @@ export async function handleApiRequest(
 
   const decide = async (action: AuditAction, resource: AuditResource): Promise<boolean> => {
     if (!principal) return false;
-    if (grant) return portalPermits(action, resource);
-    return ctx.authorization.authorize({ principal, action, resource, request });
+    return authorizeWith(
+      who,
+      { action, resource, request },
+      { authorization: ctx.authorization, scope: (_grant, a, r) => portalPermits(a, r) },
+    );
   };
 
   // Public bootstrap config: who is signed in, what they may do, portal chrome.
@@ -372,6 +362,19 @@ export async function handleApiRequest(
   };
 
   try {
+    // Key-shaped path parameters (see `isTenant`): unknown, never a storage hit on a
+    // near-spelling. Recording keeps the core's own 422 for an invalid tenant.
+    const tenantPath = /^\/api\/tenants\/[^/]+/.exec(path)?.[0];
+    const keyed = tenantPath ? match("/api/tenants/:tenant", tenantPath) : null;
+    const recording = method === "POST" && path === `${tenantPath}/events`;
+    if (keyed && !recording && !isTenant(keyed.tenant!)) {
+      return error(404, `tenant "${keyed.tenant}" not found`);
+    }
+    const event =
+      match("/api/tenants/:tenant/events/:id", path) ??
+      match("/api/tenants/:tenant/events/:id/erase", path);
+    if (event && !EVENT_ID.test(event.id!)) return error(404, `event "${event.id}" not found`);
+
     // --- Overview ---
     if (path === "/api/overview" && method === "GET") {
       const denied = await authorize("tenant:read", { type: "tenant" });
@@ -636,58 +639,30 @@ function configResource(action: AuditAction, tenant: string | undefined): AuditR
 }
 
 /**
- * Cross-bundle error detection: `instanceof` first, `err.name` fallback. An
- * error thrown from a separate subpath bundle carries its own copy of the
- * class, so `instanceof` alone would mis-map it to 500.
+ * The audit error contract (docs/HTTP_API.md "Errors"). Errors are mapped by
+ * `name`, so a class copy from another bundle still maps; `HookDeniedError`
+ * (its own status, `HOOK_DENIED`) is the kit's built-in.
  */
-function isNamed(err: unknown, ctor: new (...args: never[]) => Error, name: string): boolean {
-  return err instanceof ctor || (err instanceof Error && err.name === name);
-}
-
-/**
- * A hook denial, detected by `name` rather than `instanceof` (see
- * {@link isNamed}). Returns the status to respond with, or `null`.
- */
-function hookDeniedStatus(err: unknown): number | null {
-  if (err instanceof HookDeniedError) return err.status;
-  if (err instanceof Error && err.name === "HookDeniedError") {
-    const status = (err as { status?: unknown }).status;
-    return typeof status === "number" ? status : 403;
-  }
-  return null;
-}
+const ERROR_MAP: ErrorMap = {
+  ReadonlyError: { status: 423, code: "READONLY" },
+  PortalTokenError: { status: 401, code: "PORTAL_TOKEN" },
+  QueryError: { status: 400, code: "BAD_QUERY" },
+  NotFoundError: { status: 404 },
+  SignerRequiredError: { status: 409, code: "SIGNER_REQUIRED" },
+  ConflictError: { status: 409, code: "CONFLICT" },
+  ChainConflictError: { status: 409, code: "CONFLICT" },
+  ValidationError: {
+    status: 422,
+    code: "VALIDATION",
+    extra: (e) => {
+      const errors = (e as { errors?: unknown }).errors;
+      return { errors: Array.isArray(errors) ? errors : [] };
+    },
+  },
+  SyntaxError: () => error(400, "Invalid JSON body", { code: "BAD_JSON" }),
+};
 
 /** Map domain errors to HTTP responses (docs/HTTP_API.md "Errors"). */
 export function mapError(err: unknown): Response {
-  if (isNamed(err, ReadonlyError, "ReadonlyError")) {
-    return error(423, (err as Error).message, { code: "READONLY" });
-  }
-  const denied = hookDeniedStatus(err);
-  if (denied !== null) return error(denied, (err as Error).message, { code: "HOOK_DENIED" });
-  if (isNamed(err, PortalTokenError, "PortalTokenError")) {
-    return error(401, (err as Error).message, { code: "PORTAL_TOKEN" });
-  }
-  if (isNamed(err, QueryError, "QueryError")) {
-    return error(400, (err as Error).message, { code: "BAD_QUERY" });
-  }
-  if (isNamed(err, NotFoundError, "NotFoundError")) return error(404, (err as Error).message);
-  if (isNamed(err, SignerRequiredError, "SignerRequiredError")) {
-    return error(409, (err as Error).message, { code: "SIGNER_REQUIRED" });
-  }
-  if (
-    isNamed(err, ConflictError, "ConflictError") ||
-    isNamed(err, ChainConflictError, "ChainConflictError")
-  ) {
-    return error(409, (err as Error).message, { code: "CONFLICT" });
-  }
-  if (isNamed(err, ValidationError, "ValidationError")) {
-    const errors = (err as { errors?: unknown }).errors;
-    return error(422, (err as Error).message, {
-      code: "VALIDATION",
-      errors: Array.isArray(errors) ? errors : [],
-    });
-  }
-  if (err instanceof SyntaxError) return error(400, "Invalid JSON body", { code: "BAD_JSON" });
-  const message = err instanceof Error ? err.message : "Internal error";
-  return error(500, message);
+  return kitMapError(err, ERROR_MAP);
 }

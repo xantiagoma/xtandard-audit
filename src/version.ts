@@ -1,5 +1,5 @@
 /**
- * Package version, used for the default dispatcher `user-agent`. Bumped by the
+ * Package version (the default OpenAPI `info.version`). Bumped by the
  * release flow alongside `package.json`.
  *
  * @module
