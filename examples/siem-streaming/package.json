@@ -1,0 +1,12 @@
+{
+  "name": "example-siem-streaming",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@xtandard/audit": "file:../..",
+    "@xtandard/webhooks": "^0.1.4"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "example-postgres",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:up": "docker compose up -d --wait",
+    "db:push": "drizzle-kit push --force",
+    "db:generate": "drizzle-kit generate",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@xtandard/audit": "file:../..",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.13.0",
+    "valibot": "^1.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.2.0",
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.31.0"
+  }
+}

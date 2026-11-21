@@ -1,0 +1,13 @@
+{
+  "name": "example-hono",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@xtandard/audit": "file:../..",
+    "hono": "^4.6.0",
+    "valibot": "^1.0.0"
+  }
+}

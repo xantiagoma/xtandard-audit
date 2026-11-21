@@ -61,8 +61,14 @@ export interface AuditPanelOptions {
   logoUrl?: string;
   /** Override the directory the bundled UI is served from (defaults to `./ui` beside this module). */
   uiDir?: string;
-  /** Reuse an existing core instead of constructing one. */
-  core?: AuditCore<ActionMap>;
+  /**
+   * Reuse an existing core instead of constructing one — typed
+   * (`createAuditCore({ actions })`) or not. The panel only records untyped
+   * input over HTTP (validated at runtime by the core's catalog), so any action
+   * map is accepted here.
+   */
+  // oxlint-disable-next-line no-explicit-any -- a typed core's `record` is narrower than ActionMap's
+  core?: AuditCore<any>;
   /**
    * Control-plane hooks (see {@link ../hooks/contract.AuditHooks}). Ignored
    * when `core` is supplied — configure hooks on that core instead.

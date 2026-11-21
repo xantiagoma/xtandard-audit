@@ -1,0 +1,68 @@
+{
+  // In-repo editor/typecheck support for the examples: maps the
+  // `@xtandard/audit/*` import strings to the local source so they resolve
+  // without `bun install` or a build. The examples still depend on the package
+  // via `file:../..` at runtime (`bun install` in an example links it); when
+  // copied out, install the published package and drop these paths. Keep one
+  // entry per `exports` subpath in package.json.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "noEmit": true,
+    "types": ["bun"],
+    "paths": {
+      "@xtandard/audit": ["../src/index.ts"],
+      "@xtandard/audit/core": ["../src/core.ts"],
+      "@xtandard/audit/schema": ["../src/schema.ts"],
+      "@xtandard/audit/verify": ["../src/verify.ts"],
+      "@xtandard/audit/context": ["../src/context.ts"],
+      "@xtandard/audit/testing": ["../src/testing.ts"],
+      "@xtandard/audit/storage/memory": ["../src/entry-storage-memory.ts"],
+      "@xtandard/audit/storage/file": ["../src/entry-storage-file.ts"],
+      "@xtandard/audit/storage/redis": ["../src/entry-storage-redis.ts"],
+      "@xtandard/audit/storage/postgres": ["../src/entry-storage-postgres.ts"],
+      "@xtandard/audit/storage/drizzle": ["../src/entry-storage-drizzle.ts"],
+      "@xtandard/audit/storage/mongodb": ["../src/entry-storage-mongodb.ts"],
+      "@xtandard/audit/storage/sqlite": ["../src/entry-storage-sqlite.ts"],
+      "@xtandard/audit/storage/libsql": ["../src/entry-storage-libsql.ts"],
+      "@xtandard/audit/storage/unstorage": ["../src/entry-storage-unstorage.ts"],
+      "@xtandard/audit/storage/cloudflare-kv": ["../src/entry-storage-cloudflare-kv.ts"],
+      "@xtandard/audit/drizzle/pg": ["../src/entry-drizzle-pg.ts"],
+      "@xtandard/audit/drizzle/mysql": ["../src/entry-drizzle-mysql.ts"],
+      "@xtandard/audit/drizzle/sqlite": ["../src/entry-drizzle-sqlite.ts"],
+      "@xtandard/audit/hooks/log": ["../src/entry-hooks-log.ts"],
+      "@xtandard/audit/sinks/http": ["../src/entry-sinks-http.ts"],
+      "@xtandard/audit/sinks/webhook": ["../src/entry-sinks-webhook.ts"],
+      "@xtandard/audit/sinks/xtandard-webhooks": ["../src/entry-sinks-xtandard-webhooks.ts"],
+      "@xtandard/audit/sinks/datadog": ["../src/entry-sinks-datadog.ts"],
+      "@xtandard/audit/sinks/splunk": ["../src/entry-sinks-splunk.ts"],
+      "@xtandard/audit/sinks/s3": ["../src/entry-sinks-s3.ts"],
+      "@xtandard/audit/sinks/console": ["../src/entry-sinks-console.ts"],
+      "@xtandard/audit/sinks/file": ["../src/entry-sinks-file.ts"],
+      "@xtandard/audit/drizzle-audit": ["../src/entry-drizzle-audit.ts"],
+      "@xtandard/audit/auth/none": ["../src/entry-auth-none.ts"],
+      "@xtandard/audit/auth/basic": ["../src/entry-auth-basic.ts"],
+      "@xtandard/audit/auth/delegated": ["../src/entry-auth-delegated.ts"],
+      "@xtandard/audit/authorization/none": ["../src/entry-authorization-none.ts"],
+      "@xtandard/audit/authorization/roles": ["../src/entry-authorization-roles.ts"],
+      "@xtandard/audit/authorization/delegated": ["../src/entry-authorization-delegated.ts"],
+      "@xtandard/audit/bun": ["../src/entry-bun.ts"],
+      "@xtandard/audit/elysia": ["../src/entry-elysia.ts"],
+      "@xtandard/audit/elysia2": ["../src/entry-elysia2.ts"],
+      "@xtandard/audit/express": ["../src/entry-express.ts"],
+      "@xtandard/audit/hono": ["../src/entry-hono.ts"],
+      "@xtandard/audit/react": ["../src/react.tsx"]
+    }
+  },
+  // The demo scripts import the source directly; typecheck them with the examples.
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "../scripts/demo.ts",
+    "../scripts/seed-demo.ts",
+    "../scripts/example.ts",
+    "../src/ui/assets.d.ts"
+  ],
+  // Tool configs typed by each example's own install (drizzle-kit is not a repo devDependency).
+  "exclude": ["**/node_modules/**", "**/.audit/**", "postgres/drizzle.config.ts"]
+}

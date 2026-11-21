@@ -300,7 +300,19 @@ Details: [docs/STORAGE.md](docs/STORAGE.md).
 
 ## Examples
 
-TODO(examples)
+`bun run demo` boots a seeded playground on http://localhost:7790 — four customer tenants with six weeks of realistic history (sign-ins, member and role changes, invoices paid / failed / refunded, API keys, SSO, deployments, exports, GDPR erasures), daily Ed25519 checkpoints, a pruned retention window, a SIEM stream catching up, a customer's Splunk stream stuck on a revoked token, and portal links per tenant.
+
+| Example                                                                                                       | Shows                                                                              |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [`hono`](examples/hono) / [`elysia`](examples/elysia) / [`express`](examples/express) / [`bun`](examples/bun) | panel + a team-settings app recording on real user actions via `auditContext`      |
+| [`auth`](examples/auth)                                                                                       | none/basic/delegated + admin/auditor/viewer roles + portal tokens side by side     |
+| [`portal-embed`](examples/portal-embed)                                                                       | `<AuditPortal>` inside a host React app, with a server minting portal tokens       |
+| [`storage-drivers`](examples/storage-drivers)                                                                 | one contract, every serverless backend, the same query results                     |
+| [`postgres`](examples/postgres)                                                                               | docker Postgres + the audit tables in your Drizzle schema, migrated by drizzle-kit |
+| [`siem-streaming`](examples/siem-streaming)                                                                   | HTTP + signed-webhook + checkpoint-witness streams; failures, backoff, catch-up    |
+| [`drizzle-audit-bridge`](examples/drizzle-audit-bridge)                                                       | drizzle-audit row changes → the chained, tenant-scoped log                         |
+| [`verify-export`](examples/verify-export)                                                                     | signed bundles verified offline: `@xtandard/audit/verify` + CLI exit codes 0/2/1   |
+| [`standalone-docker`](examples/standalone-docker)                                                             | compose file for the image, with Postgres                                          |
 
 ## CLI
 

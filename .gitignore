@@ -30,6 +30,7 @@ examples/*/bun.lock
 
 # CLI/standalone file-storage dirs
 .webhooks
+.audit
 data
 
 # generated API reference (run: bun run docs:api)
@@ -38,6 +39,8 @@ docs/api
 # example install/runtime artifacts
 examples/**/node_modules
 examples/**/.webhooks
+examples/**/.audit
+examples/postgres/drizzle
 examples/receivers/python/.venv
 examples/receivers/python/__pycache__
 

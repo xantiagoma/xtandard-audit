@@ -1,0 +1,13 @@
+{
+  "name": "example-elysia",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@xtandard/audit": "file:../..",
+    "elysia": "^1.4.0",
+    "valibot": "^1.0.0"
+  }
+}
