@@ -61,7 +61,7 @@
     "../scripts/demo.ts",
     "../scripts/seed-demo.ts",
     "../scripts/example.ts",
-    "../src/ui/assets.d.ts"
+    "../node_modules/@xtandard/kit/tsconfig/assets.d.ts"
   ],
   // Tool configs typed by each example's own install (drizzle-kit is not a repo devDependency).
   "exclude": ["**/node_modules/**", "**/.audit/**", "postgres/drizzle.config.ts"]
