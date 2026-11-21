@@ -18,6 +18,11 @@ Record typed audit events from your app, store them in the database you already 
 
 **Documentation: [me.xantiagoma.com/xtandard-audit](https://me.xantiagoma.com/xtandard-audit/)** — guides and the full API reference.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-events-dark.png" />
+  <img src="https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-events-light.png" alt="Events explorer: every tenant's log, filtered and paginated" width="800" />
+</picture>
+
 </div>
 
 > `record()` is one call in your request handler. Every tenant gets its own hash chain with signed checkpoints, so your customers — and their auditors — can **verify** that nobody, including you, altered or deleted their history.
@@ -36,6 +41,7 @@ Record typed audit events from your app, store them in the database you already 
 - [Storage backends](#storage-backends)
 - [Subpath exports](#subpath-exports)
 - [Examples](#examples)
+- [Screenshots](#screenshots)
 - [CLI](#cli)
 - [Documentation](#documentation)
 - [Project status](#project-status)
@@ -235,6 +241,8 @@ const report = await audit.verify("acme"); // { ok, checked, anchor, signedThrou
 
 Customers verify exports offline with nothing but the bundle — `xtandard-audit verify --bundle acme.jsonl` or the zero-dependency `@xtandard/audit/verify`. Details: [docs/INTEGRITY.md](docs/INTEGRITY.md).
 
+<img src="https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-integrity.png" alt="Integrity view: verification report and signed checkpoints" width="720" />
+
 ## The customer portal
 
 The WorkOS-style audit-log viewer, self-hosted: your customers browse, filter, export and verify **their own** events inside your product, scoped by a signed token — no sessions, no proxy routes.
@@ -251,6 +259,11 @@ import "@xtandard/audit/react/styles.css";
 
 <AuditPortal apiBaseUrl="/audit" token={token} />;
 ```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-portal-dark.png" />
+  <img src="https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-portal-light.png" alt="The customer portal: a tenant's own log with an integrity badge" width="720" />
+</picture>
 
 Details: [docs/PORTAL.md](docs/PORTAL.md).
 
@@ -313,6 +326,16 @@ Details: [docs/STORAGE.md](docs/STORAGE.md).
 | [`drizzle-audit-bridge`](examples/drizzle-audit-bridge)                                                       | drizzle-audit row changes → the chained, tenant-scoped log                         |
 | [`verify-export`](examples/verify-export)                                                                     | signed bundles verified offline: `@xtandard/audit/verify` + CLI exit codes 0/2/1   |
 | [`standalone-docker`](examples/standalone-docker)                                                             | compose file for the image, with Postgres                                          |
+
+## Screenshots
+
+|                                                                                                                                  |                                                                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ![Overview](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-overview-light.png)                  | ![Event detail with the integrity block](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-event-detail.png)             |
+| ![Streams: lag, failures and retry](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-streams.png) | ![Action catalog (dark)](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-actions.png)                                  |
+| ![Customer portal (dark)](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-portal-dark.png)       | ![`<AuditPortal>` embedded in a host React app](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-react-embed-light.png) |
+
+`bun run demo` serves this seeded playground on http://localhost:7790.
 
 ## CLI
 
