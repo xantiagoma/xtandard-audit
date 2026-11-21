@@ -144,3 +144,4 @@ green locally and in GitHub Actions.
 | 0011 | Erasure vs immutability: redact sections, keep digests ★                        |
 | 0012 | Typed actions via Standard Schema (validator-agnostic) ★                        |
 | 0013 | Request context capture via AsyncLocalStorage middleware ★                      |
+| 0014 | Panel handler deviations: 423 readonly, streams/close, maintenance, roles ★     |
