@@ -49,6 +49,8 @@ function increment(digits: number[]): number[] {
 
 /** A raw 26-char time-sortable value for `ms` (defaults to now). */
 export function sortableId(ms: number = Date.now()): string {
+  // Injected clocks may return fractional milliseconds; the encoding needs an integer.
+  ms = Math.floor(ms);
   let random: number[];
   if (ms <= lastTime) {
     random = increment(lastRandom);

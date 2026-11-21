@@ -353,7 +353,15 @@ function AppShell({
                 <StreamsView ctx={ctx} />
               </Route>
             )}
-            <Route>{showOverview ? <OverviewView ctx={ctx} /> : <EventsView ctx={ctx} />}</Route>
+            <Route>
+              {/* Wait for /config: the bootstrap config cannot know a ?token= portal principal,
+                  and mounting the overview first would fire a request the portal is denied. */}
+              {!configQuery.isSuccess ? null : showOverview ? (
+                <OverviewView ctx={ctx} />
+              ) : (
+                <EventsView ctx={ctx} />
+              )}
+            </Route>
           </Switch>
         )}
       </main>

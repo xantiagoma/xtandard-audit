@@ -96,6 +96,10 @@ describe("ids", () => {
     expect(idTime(ids[0]!)).toBe(ms);
     expect(newId("evt", ms + 1) > ids[49]!).toBe(true);
     expect(idTime("evt_short")).toBeNull();
+    // Fractional milliseconds from an injected clock still encode cleanly.
+    const fractional = newId("evt", ms + 8.5);
+    expect(idPattern("evt").test(fractional)).toBe(true);
+    expect(idTime(fractional)).toBe(ms + 8);
     expect(idTime("evt_!!!!!!!!!!AAAAAAAAAAAAAAAA")).toBeNull();
     // A clock going backwards still yields increasing ids.
     expect(sortableId(ms - 10_000) > ids[49]!.slice(4)).toBe(true);
