@@ -21,7 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from mark import mark, H  # noqa: E402
-from text import text_path, x_height  # noqa: E402
+from text import cap_height, text_path, x_height  # noqa: E402
 from geom import f  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -205,8 +205,12 @@ def wordmark(x, baseline, xh, first_fill, second_fill, stacked_pitch=None):
 def lockup_horizontal(theme):
     hgt = 96.0
     s = hgt / BH
-    base = (H - BY0) * s  # wordmark baseline = the X's bottom
     xh = 0.5 * H * s
+    # Vertically centre the symbol on the wordmark's optical centre: the middle of its cap height
+    # (baseline .. cap height, descenders ignored) sits on the symbol's vertical centre. The same
+    # rule is used across the xtandard lockups.
+    cap = cap_height(URB, WORD_WGHT) * (xh / XH)
+    base = hgt / 2 + cap / 2
     gap = 0.22 * hgt
     x = BW * s + gap
     dark = theme == "dark"

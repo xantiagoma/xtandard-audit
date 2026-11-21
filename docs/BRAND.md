@@ -187,8 +187,11 @@ of the X) above the X's top.
   are turned (−80° to −30° and 150° to 100°) so their end dots clear the brackets. Corner radius
   224 of 1024 (21.9%).
 - **Favicon**: the symbol 840 units high on the flat `xa-ink` square, same corner radius.
-- **Horizontal lockup**: 96 units high = the symbol's height; the wordmark's baseline is the X's
-  bottom, its x-height half the X's height, starting 22% of the height after the symbol.
+- **Horizontal lockup** (also the monochrome ones): 96 units high = the symbol's height; the
+  wordmark's x-height is half the X's height and it starts 22% of the height after the symbol. The
+  symbol is **vertically centred on the wordmark's optical centre**: the middle of the cap height
+  (baseline to cap height, descenders ignored) sits on the symbol's vertical centre — the rule every
+  xtandard horizontal lockup follows.
 - **Stacked lockup**: 205 units high; `audit`'s baseline is the X's bottom, `xtandard-` 1.6
   x-heights above it, x-height 27% of the height.
 
