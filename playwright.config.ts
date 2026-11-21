@@ -24,7 +24,8 @@ export default defineConfig({
   webServer: {
     command: `bun run build:ui && bun run build:react && PORT=${PORT} bun e2e/server.ts`,
     url: `http://localhost:${PORT}/healthcheck`,
-    timeout: 120_000,
+    // Two Vite builds (SPA + embed) run first; allow for a loaded CI/shared machine.
+    timeout: 300_000,
     reuseExistingServer: !process.env.CI,
   },
 });
