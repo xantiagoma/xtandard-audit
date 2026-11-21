@@ -230,31 +230,37 @@ describe.skipIf(!available)("createMongoStorage (live)", () => {
     );
   });
 
-  test("multiple writers append to one tenant without forking the chain", async () => {
-    const shared = {
-      url: MONGO_URL,
-      dbName,
-      collectionName: "kv_mw",
-      eventsCollectionName: "ev_mw",
-    };
-    const a = createMongoStorage(shared);
-    const b = createMongoStorage(shared);
-    makers.push(a, b);
-    const coreA = createAuditCore({ storage: a, selfAudit: false });
-    const coreB = createAuditCore({ storage: b, selfAudit: false });
-    await Promise.all(
-      Array.from({ length: 12 }, (_, i) =>
-        (i % 2 ? coreA : coreB).record({
-          tenant: "shared",
-          action: "x.tick",
-          actor: { id: `${i}` },
-        }),
-      ),
-    );
-    const report = await coreA.verify("shared");
-    expect(report.ok).toBe(true);
-    expect(report.checked).toBe(12);
-  });
+  test(
+    "multiple writers append to one tenant without forking the chain",
+    { timeout: 20_000 },
+    async () => {
+      // Fresh collections per attempt, so a retried run starts empty.
+      const n = counter++;
+      const shared = {
+        url: MONGO_URL,
+        dbName,
+        collectionName: `kv_mw_${n}`,
+        eventsCollectionName: `ev_mw_${n}`,
+      };
+      const a = createMongoStorage(shared);
+      const b = createMongoStorage(shared);
+      makers.push(a, b);
+      const coreA = createAuditCore({ storage: a, selfAudit: false });
+      const coreB = createAuditCore({ storage: b, selfAudit: false });
+      await Promise.all(
+        Array.from({ length: 12 }, (_, i) =>
+          (i % 2 ? coreA : coreB).record({
+            tenant: "shared",
+            action: "x.tick",
+            actor: { id: `${i}` },
+          }),
+        ),
+      );
+      const report = await coreA.verify("shared");
+      expect(report.ok).toBe(true);
+      expect(report.checked).toBe(12);
+    },
+  );
 
   afterAll(async () => {
     // Drop the throwaway database, then close every client this suite opened so

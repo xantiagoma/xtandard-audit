@@ -3,9 +3,9 @@ import { getTableConfig, type MySqlTable } from "drizzle-orm/mysql-core";
 import mysql from "mysql2/promise";
 import { afterAll, describe, expect, test } from "vitest";
 import { createAuditCore } from "../src/core.ts";
-import { mysqlAuditTables } from "../src/drizzle/mysql.ts";
+import { mysqlAuditTables, type MysqlAuditTableOptions } from "../src/drizzle/mysql.ts";
 import type { DrizzleAuditTables } from "../src/drizzle/table.ts";
-import { createDrizzleStorage } from "../src/storage/drizzle.ts";
+import { createDrizzleStorage, KeyCollisionError } from "../src/storage/drizzle.ts";
 import { runStorageContractTests } from "./storage-contract.ts";
 
 /**
@@ -67,9 +67,11 @@ function createTableSql(table: MySqlTable): string {
 }
 
 let n = 0;
-async function freshTables(): Promise<{ db: unknown } & DrizzleAuditTables> {
+async function freshTables(
+  keyCollation?: MysqlAuditTableOptions["keyCollation"],
+): Promise<{ db: unknown } & DrizzleAuditTables> {
   const p = await getPool();
-  const tables = mysqlAuditTables(`aud_${n++}`);
+  const tables = mysqlAuditTables(`aud_${n++}`, keyCollation ? { keyCollation } : {});
   for (const t of Object.values(tables)) await p.query(createTableSql(t as MySqlTable));
   // `mysql2/promise` and `mysql2` ship separate (incompatible) Pool typings; the runtime object is the same.
   return { db: drizzle(p as never), ...tables };
@@ -84,14 +86,30 @@ afterAll(async () => {
 }, 120_000);
 
 describe.skipIf(!available)("createDrizzleStorage (mysql, live)", () => {
+  // The KV conformance suite on a NO PAD key column (the kit's own MySQL setup): keys that differ
+  // only by trailing spaces are distinct there. The default (PAD SPACE) column is covered below.
   runStorageContractTests(
-    "drizzle (mysql)",
-    async () => createDrizzleStorage(await freshTables()),
+    "drizzle (mysql, utf8mb4_0900_bin keys)",
+    async () => createDrizzleStorage(await freshTables("utf8mb4_0900_bin")),
     {
       t: { describe, test, expect },
       capabilities: { compareAndSwap: true, watch: false },
       expectNativeEventLog: true,
       timeout: 30_000,
+    },
+  );
+
+  test(
+    "the default utf8mb4_bin key refuses a trailing-space collision instead of overwriting",
+    { timeout: 30_000 },
+    async () => {
+      const storage = createDrizzleStorage(await freshTables());
+      await storage.setItem("aud/k/a", { v: 1 });
+      const error = await storage.setItem("aud/k/a ", { v: 2 }).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(KeyCollisionError);
+      expect((error as KeyCollisionError).storedKey).toBe("aud/k/a");
+      expect(await storage.getItem("aud/k/a")).toEqual({ v: 1 });
+      expect(await storage.getItem("aud/k/a ")).toBeNull();
     },
   );
 
