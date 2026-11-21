@@ -274,6 +274,7 @@
     "docs:dev": "cd site && bun install && bun run dev",
     "docs:build": "cd site && bun install && bun run build",
     "docs:preview": "cd site && bun run preview",
+    "brand:masters": "uv run scripts/brand/build.py",
     "brand:assets": "sh scripts/brand-assets.sh",
     "brand:check": "sh scripts/brand-assets.sh --check"
   },
