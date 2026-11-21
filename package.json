@@ -164,6 +164,96 @@
         "default": "./dist/entry-hooks-log.cjs"
       }
     },
+    "./sinks/http": {
+      "import": {
+        "types": "./dist/entry-sinks-http.d.mts",
+        "default": "./dist/entry-sinks-http.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-sinks-http.d.cts",
+        "default": "./dist/entry-sinks-http.cjs"
+      }
+    },
+    "./sinks/webhook": {
+      "import": {
+        "types": "./dist/entry-sinks-webhook.d.mts",
+        "default": "./dist/entry-sinks-webhook.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-sinks-webhook.d.cts",
+        "default": "./dist/entry-sinks-webhook.cjs"
+      }
+    },
+    "./sinks/xtandard-webhooks": {
+      "import": {
+        "types": "./dist/entry-sinks-xtandard-webhooks.d.mts",
+        "default": "./dist/entry-sinks-xtandard-webhooks.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-sinks-xtandard-webhooks.d.cts",
+        "default": "./dist/entry-sinks-xtandard-webhooks.cjs"
+      }
+    },
+    "./sinks/datadog": {
+      "import": {
+        "types": "./dist/entry-sinks-datadog.d.mts",
+        "default": "./dist/entry-sinks-datadog.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-sinks-datadog.d.cts",
+        "default": "./dist/entry-sinks-datadog.cjs"
+      }
+    },
+    "./sinks/splunk": {
+      "import": {
+        "types": "./dist/entry-sinks-splunk.d.mts",
+        "default": "./dist/entry-sinks-splunk.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-sinks-splunk.d.cts",
+        "default": "./dist/entry-sinks-splunk.cjs"
+      }
+    },
+    "./sinks/s3": {
+      "import": {
+        "types": "./dist/entry-sinks-s3.d.mts",
+        "default": "./dist/entry-sinks-s3.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-sinks-s3.d.cts",
+        "default": "./dist/entry-sinks-s3.cjs"
+      }
+    },
+    "./sinks/console": {
+      "import": {
+        "types": "./dist/entry-sinks-console.d.mts",
+        "default": "./dist/entry-sinks-console.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-sinks-console.d.cts",
+        "default": "./dist/entry-sinks-console.cjs"
+      }
+    },
+    "./sinks/file": {
+      "import": {
+        "types": "./dist/entry-sinks-file.d.mts",
+        "default": "./dist/entry-sinks-file.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-sinks-file.d.cts",
+        "default": "./dist/entry-sinks-file.cjs"
+      }
+    },
+    "./drizzle-audit": {
+      "import": {
+        "types": "./dist/entry-drizzle-audit.d.mts",
+        "default": "./dist/entry-drizzle-audit.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-drizzle-audit.d.cts",
+        "default": "./dist/entry-drizzle-audit.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -210,9 +300,12 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^4.1.6",
+    "@xtandard/webhooks": "^0.1.4",
+    "aws4fetch": "^1.0.20",
     "changelogen": "^0.6.2",
     "class-variance-authority": "^0.7",
     "clsx": "^2.1",
+    "drizzle-audit": "^0.1.13",
     "drizzle-orm": "^0.45.2",
     "elysia": "^1.4",
     "elysia-v2": "npm:elysia@2.0.0-rc.0",
@@ -230,6 +323,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "redis": "^5.0.0",
+    "standardwebhooks": "^1.3.0",
     "tailwind-merge": "^3.6",
     "tailwindcss": "^4.0.0",
     "typebox": "^1.4.3",
@@ -241,6 +335,7 @@
   },
   "peerDependencies": {
     "@libsql/client": "0.15.15",
+    "aws4fetch": "^1.0.0",
     "drizzle-orm": ">=0.44.0 || >=1.0.0-0",
     "elysia": "^1.0.0 || ^2.0.0-0",
     "express": "^4.0.0 || ^5.0.0",
@@ -254,6 +349,9 @@
   },
   "peerDependenciesMeta": {
     "@libsql/client": {
+      "optional": true
+    },
+    "aws4fetch": {
       "optional": true
     },
     "drizzle-orm": {
