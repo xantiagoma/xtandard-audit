@@ -348,7 +348,7 @@ export function Drawer({
       <Dialog.Portal container={portalContainerRef()}>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px] transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
         <Dialog.Popup
-          aria-label="Event detail"
+          data-testid="drawer"
           className={cn(
             "fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-border bg-card shadow-2xl outline-none",
             "transition-transform data-[ending-style]:translate-x-full data-[starting-style]:translate-x-full",

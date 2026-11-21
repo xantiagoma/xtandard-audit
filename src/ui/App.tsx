@@ -16,6 +16,7 @@ import { StreamsView } from "./views/StreamsView.tsx";
 import { can } from "./lib/format.ts";
 import { cn } from "./lib/utils.ts";
 import { canLeave } from "./lib/nav-guard.ts";
+import symbolUrl from "./brand/symbol.svg";
 
 interface NavTab {
   path: string;
@@ -244,7 +245,14 @@ function AppShell({
                 className="h-7 max-w-[320px] object-contain"
               />
             ) : (
-              <span className="text-sm font-semibold tracking-tight">{brandTitle}</span>
+              <>
+                {/* The lime symbol is drawn for dark surfaces: keep it on an ink
+                    chip so it reads in both themes (docs/BRAND.md). */}
+                <span className="inline-flex size-7 items-center justify-center rounded-md bg-[#101113]">
+                  <img src={symbolUrl} alt="" aria-hidden className="size-[18px]" />
+                </span>
+                <span className="text-sm font-semibold tracking-tight">{brandTitle}</span>
+              </>
             )}
           </div>
 

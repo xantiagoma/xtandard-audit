@@ -1,5 +1,5 @@
 import React from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "wouter";
 import { ChevronRight, RefreshCw, Search, X } from "lucide-react";
 import type { AuditEvent } from "../types.ts";
@@ -302,6 +302,9 @@ export function EventsView({ ctx }: { ctx: ShellContext }) {
         ...(pageParam ? { cursor: pageParam } : {}),
       }),
     initialPageParam: "",
+    // Keep the current rows on screen while a new filter loads (no flash to a
+    // spinner, and a click right after typing still lands on a row).
+    placeholderData: keepPreviousData,
     getNextPageParam: (last) =>
       last.pageInfo.hasNextPage ? (last.pageInfo.endCursor ?? undefined) : undefined,
   });
