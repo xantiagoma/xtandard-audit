@@ -21,18 +21,21 @@ independent packages (flags and webhooks depend only on `valibot` + `wouter`).
 
    ```ts
    interface AuditQuery {
-     tenant?: string;                    // required for portal principals (forced)
-     actions?: string[];                 // exact names; "invoice.*" = prefix family
+     tenant?: string; // required for portal principals (forced)
+     actions?: string[]; // exact names; "invoice.*" = prefix family
      excludeActions?: string[];
-     actorId?: string; actorType?: string;
-     targetType?: string; targetId?: string;
+     actorId?: string;
+     actorType?: string;
+     targetType?: string;
+     targetId?: string;
      outcome?: "success" | "failure";
-     from?: string; to?: string;         // occurredAt range, ISO-8601, [from, to)
-     search?: string;                    // case-insensitive substring over action, actor,
-                                         // targets, description, metadata (driver-specific)
-     order?: "desc" | "asc";             // by (occurredAt, id); default "desc"
-     limit?: number;                     // default 50, max 500
-     cursor?: string;                    // opaque keyset cursor
+     from?: string;
+     to?: string; // occurredAt range, ISO-8601, [from, to)
+     search?: string; // case-insensitive substring over action, actor,
+     // targets, description, metadata (driver-specific)
+     order?: "desc" | "asc"; // by (occurredAt, id); default "desc"
+     limit?: number; // default 50, max 500
+     cursor?: string; // opaque keyset cursor
    }
    ```
 
