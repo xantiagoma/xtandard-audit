@@ -2,6 +2,20 @@
 
 ZeroVer (`0.x`): the API is stabilizing; minor bumps may break, patch bumps don't. Releases are cut manually — the proven flow below, **not** `changelogen --release` (its auto-tag once tagged a pre-bump commit in the sibling flags repo).
 
+## The first publish (once)
+
+npm only lets you configure a trusted publisher on a package that exists, so `v0.1.0` is published by
+hand from a maintainer's machine, and every later version goes through `release.yml`:
+
+```sh
+git checkout v0.1.0 && bun install --frozen-lockfile
+bun run build && bunx publint && bun pm pack --dry-run   # what will ship
+npm publish --access public --provenance=false           # 2FA prompt; provenance needs CI
+# then, once, allow this repo's workflow to publish:
+npx npm@latest trust github @xtandard/audit --repo xantiagoma/xtandard-audit --file release.yml --allow-publish
+gh release create v0.1.0 --title v0.1.0 --notes-file <(awk '/^## v0.1.0/{on=1;next} on&&/^## /{exit} on' CHANGELOG.md)
+```
+
 ## The flow
 
 ```sh

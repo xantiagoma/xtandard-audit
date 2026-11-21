@@ -1,6 +1,6 @@
 {
   "name": "@xtandard/audit",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Self-hosted, embeddable, tamper-evident audit-log control plane for B2B SaaS: typed events, pluggable storage, hash-chained and signed, with a customer-facing portal, exports and SIEM streaming.",
   "keywords": [
     "activity-log",
