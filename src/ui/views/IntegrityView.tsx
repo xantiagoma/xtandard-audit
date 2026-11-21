@@ -11,8 +11,8 @@ import {
   listTenants,
   verifyTenant,
 } from "../api.ts";
-import { useToast } from "../components/Toast.tsx";
-import { Button } from "../components/ui-bits.tsx";
+import { useToast } from "@xtandard/kit/ui";
+import { Button } from "@xtandard/kit/ui";
 import { VerifyReportView } from "../components/integrity-bits.tsx";
 import {
   CopyButton,

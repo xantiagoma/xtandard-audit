@@ -1,7 +1,7 @@
 import * as React from "react";
 import { X } from "lucide-react";
 import { actionSuggestions, isFamily } from "../lib/filters.ts";
-import { cn } from "../lib/utils.ts";
+import { cn } from "@xtandard/kit/ui";
 
 /**
  * Multi-value action filter: chips plus a type-ahead over the catalog's names

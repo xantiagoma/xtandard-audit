@@ -12,81 +12,37 @@ import type {
   StreamStatus,
   VerifyReport,
 } from "./types.ts";
+import { createApiClient, type ApiClient } from "@xtandard/kit/ui";
 import { AuditApiError } from "./types.ts";
 
-// Base prepended to every request path. Empty by default so the bundled SPA uses
-// relative URLs (resolved against the injected <base href>). The React component
-// export sets this to the panel's mount URL via setApiBase().
-let apiBase = "";
-// Credentials mode for every request. `same-origin` (default) is right for the
-// bundled SPA and same-origin embeds; a cross-origin embed (panel on another
-// origin) must use `include` so the session cookie is sent. See setApiBase().
-let apiCredentials: RequestCredentials = "same-origin";
-// Optional custom fetch (e.g. to inject a bearer token / extra headers when the
-// panel is protected by a non-cookie scheme). Defaults to the global fetch.
-let apiFetch: FetchLike = (input, init) => fetch(input, init);
-// Portal token attached as `Authorization: Bearer audpt_…` to every request.
-// Set by the standalone SPA when a `?token=` query param is present (the portal
-// embed mechanism for the bundled UI) or by the React portal component.
-let apiToken: string | null = null;
+/**
+ * The audit API client (`@xtandard/kit/ui`'s): a base URL (empty by default,
+ * so the bundled SPA uses relative URLs resolved against the injected
+ * `<base href>`; the React export sets the panel's mount URL), the
+ * `credentials` mode (`"include"` for a cross-origin cookie embed), an
+ * optional custom `fetch`, and the portal token sent as
+ * `Authorization: Bearer audpt_…`. Non-2xx responses throw
+ * {@link AuditApiError}. Each product has its own client, so two dashboards on
+ * one page never share a base URL or token.
+ */
+const client = createApiClient({ errorClass: AuditApiError });
 
-/** The subset of `fetch` the client uses (the global `fetch` satisfies it). */
-export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-
-/** Options for {@link setApiBase}. */
-export interface ApiClientOptions {
-  /** `credentials` mode for requests. Use `"include"` for cross-origin cookie auth. */
-  credentials?: RequestCredentials;
-  /** Custom fetch implementation (bearer tokens, extra headers, instrumentation). */
-  fetch?: FetchLike;
-}
+export type { ApiClientOptions, FetchLike } from "@xtandard/kit/ui";
 
 /** Point the API client at a base URL (used by the `@xtandard/audit/react` export). */
-export function setApiBase(base: string, opts?: ApiClientOptions): void {
-  apiBase = base.replace(/\/$/, "");
-  if (opts?.credentials) apiCredentials = opts.credentials;
-  if (opts?.fetch) apiFetch = opts.fetch;
-}
+export const setApiBase: ApiClient["setApiBase"] = client.setApiBase;
 
 /** Attach a portal token (`audpt_…`) as a Bearer credential on every request. */
-export function setApiToken(token: string | null): void {
-  apiToken = token;
-}
+export const setApiToken: ApiClient["setApiToken"] = client.setApiToken;
+
+/** The attached portal token, if any. */
+export const getApiToken: ApiClient["getApiToken"] = client.getApiToken;
 
 /** The URL for an API path under the current base (links: JWKS, OpenAPI). */
-export function apiUrl(path: string): string {
-  return apiBase ? `${apiBase}/${path}` : path;
-}
+export const apiUrl: ApiClient["apiUrl"] = client.apiUrl;
 
-async function send(path: string, init?: RequestInit): Promise<Response> {
-  const res = await apiFetch(apiUrl(path), {
-    credentials: apiCredentials,
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
-
-  if (!res.ok) {
-    let body: ApiError;
-    try {
-      body = (await res.json()) as ApiError;
-    } catch {
-      body = { status: res.status, error: res.statusText };
-    }
-    throw new AuditApiError(res.status, { ...body, status: res.status });
-  }
-  return res;
-}
-
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await send(path, init);
-  const text = await res.text();
-  if (!text) return undefined as unknown as T;
-  return JSON.parse(text) as T;
-}
+const send = client.send;
+const req = client.req;
 
 const tenantBase = (tenant: string): string => `api/tenants/${encodeURIComponent(tenant)}`;
 

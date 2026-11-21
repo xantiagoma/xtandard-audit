@@ -5,8 +5,8 @@ import { ChevronRight, RefreshCw, Search, X } from "lucide-react";
 import type { AuditEvent } from "../types.ts";
 import type { ShellContext } from "../App.tsx";
 import { listActions, listEvents } from "../api.ts";
-import { Button } from "../components/ui-bits.tsx";
-import { Dropdown, Segmented, TextInput } from "../components/primitives.tsx";
+import { Button } from "@xtandard/kit/ui";
+import { Dropdown, Segmented, TextInput } from "@xtandard/kit/ui";
 import { ActionFilter } from "../components/ActionFilter.tsx";
 import { ExportMenu } from "../components/ExportMenu.tsx";
 import { VerifyPanel } from "../components/integrity-bits.tsx";
@@ -30,7 +30,7 @@ import {
   type TimeRange,
 } from "../lib/filters.ts";
 import { actorLabel, formatDateTime, relativeTime, targetsSummary } from "../lib/format.ts";
-import { cn } from "../lib/utils.ts";
+import { cn } from "@xtandard/kit/ui";
 import { EventDrawer } from "./EventDrawer.tsx";
 
 const PAGE_SIZE = 50;

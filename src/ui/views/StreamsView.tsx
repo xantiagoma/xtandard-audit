@@ -4,8 +4,8 @@ import { RotateCcw } from "lucide-react";
 import { AuditApiError } from "../types.ts";
 import type { ShellContext } from "../App.tsx";
 import { listStreams, retryStream } from "../api.ts";
-import { useToast } from "../components/Toast.tsx";
-import { Button } from "../components/ui-bits.tsx";
+import { useToast } from "@xtandard/kit/ui";
+import { Button } from "@xtandard/kit/ui";
 import {
   EmptyCard,
   LoadingRow,

@@ -5,8 +5,8 @@ import type { AuditCheckpoint, VerifyReport } from "../types.ts";
 import { AuditApiError } from "../types.ts";
 import { listCheckpoints, verifyTenant } from "../api.ts";
 import { anchorLabel, shortHash, verificationSummary } from "../lib/format.ts";
-import { cn } from "../lib/utils.ts";
-import { Button } from "./ui-bits.tsx";
+import { cn } from "@xtandard/kit/ui";
+import { Button } from "@xtandard/kit/ui";
 import { KeyValue, Mono, ToneBadge } from "./audit-bits.tsx";
 
 const TONE_ICON = { ok: ShieldCheck, warn: ShieldQuestion, fail: ShieldAlert } as const;

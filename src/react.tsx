@@ -25,60 +25,20 @@
  * @module react
  */
 
-import React from "react";
-import type { BaseLocationHook } from "wouter";
-import { useHashLocation } from "wouter/use-hash-location";
-import { useBrowserLocation } from "wouter/use-browser-location";
-import { memoryLocation } from "wouter/memory-location";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type React from "react";
+import type { QueryClient } from "@tanstack/react-query";
+import { createEmbed, type EmbedBaseProps, type EmbedRouting } from "@xtandard/kit/ui/embed";
+import type { FetchLike } from "@xtandard/kit/ui";
 import { App } from "./ui/App.tsx";
-import { ToastProvider } from "./ui/components/Toast.tsx";
-import { setApiBase, setApiToken, type FetchLike } from "./ui/api.ts";
-import { setPortalContainerRef } from "./ui/lib/portal-container.ts";
-import {
-  detectHostTheme,
-  getThemePref,
-  resolveTheme,
-  subscribeSystemTheme,
-  subscribeThemePref,
-  watchHostTheme,
-  type ResolvedTheme,
-} from "./ui/theme.ts";
+import * as api from "./ui/api.ts";
+import { themeStore } from "./ui/theme.ts";
 import "./ui/styles.css";
 
 /** Theme modes for the embedded components (see {@link AuditDashboardProps.theme}). */
 export type EmbedTheme = "auto" | "inherit" | "light" | "dark";
 
-/** Resolve the embed's theme for `mode`, re-rendering when its source changes. */
-function useEmbedTheme(mode: EmbedTheme): ResolvedTheme {
-  const read = React.useCallback((): ResolvedTheme => {
-    if (mode === "light" || mode === "dark") return mode;
-    if (mode === "inherit") return detectHostTheme();
-    return resolveTheme(getThemePref());
-  }, [mode]);
-
-  const [resolved, setResolved] = React.useState<ResolvedTheme>(read);
-
-  React.useEffect(() => {
-    const update = () => setResolved(read());
-    update();
-    if (mode === "inherit") return watchHostTheme(update);
-    if (mode === "auto") {
-      const offPref = subscribeThemePref(update);
-      const offSystem = subscribeSystemTheme(update);
-      return () => {
-        offPref();
-        offSystem();
-      };
-    }
-    return undefined;
-  }, [mode, read]);
-
-  return resolved;
-}
-
 /** Props for {@link AuditDashboard}. */
-export interface AuditDashboardProps {
+export interface AuditDashboardProps extends EmbedBaseProps {
   /**
    * Base URL where the panel API + `/config` are mounted (e.g. `"/audit"` or
    * `"https://admin.example.com/audit"`). Defaults to `""` (same origin, relative).
@@ -122,7 +82,7 @@ export interface AuditDashboardProps {
    * - `"memory"` — in-memory only; no URL coupling at all.
    * - a custom wouter location hook for full control.
    */
-  routing?: "hash" | "browser" | "memory" | BaseLocationHook;
+  routing?: EmbedRouting;
   /** Base path the panel is mounted at, used by `routing: "browser"` (e.g. `"/admin/audit"`). */
   routerBase?: string;
   /** Navbar logo image URL (replaces the title wordmark). Overrides server `/config`. */
@@ -147,93 +107,35 @@ export interface AuditPortalProps extends Omit<AuditDashboardProps, "initialTena
   token: string;
 }
 
-let fallbackClient: QueryClient | undefined;
-function getClient(): QueryClient {
-  fallbackClient ??= new QueryClient({
-    defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
-  });
-  return fallbackClient;
-}
+/**
+ * The shared embed plumbing (`@xtandard/kit/ui/embed`): one theme per embed on
+ * the `.xtandard-audit` wrapper, toasts and Base UI portals inside it, the
+ * memory router keeping its query string, and the portal token attached
+ * synchronously (queries refetch when it changes; it is cleared on unmount).
+ */
+const embed = createEmbed<{ initialTenant?: string }>({
+  App,
+  scopeClass: "xtandard-audit",
+  api,
+  themeKey: themeStore,
+  tokenRouting: "hash", // the portal routes in the hash too, as it always has
+  displayNames: { dashboard: "AuditDashboard", token: "AuditPortal" },
+});
 
 /** The full audit-log admin dashboard as an embeddable React component. */
-export function AuditDashboard({
-  apiBaseUrl = "",
-  credentials,
-  fetch: fetchImpl,
-  queryClient,
-  theme = "auto",
-  className,
-  routing = "hash",
-  routerBase = "",
-  logoUrl,
-  initialTenant,
-}: AuditDashboardProps): React.ReactElement {
-  // Set the API base synchronously so child queries (run on mount) use it.
-  setApiBase(apiBaseUrl, { credentials, fetch: fetchImpl });
-
-  const resolvedTheme = useEmbedTheme(theme);
-
-  const client = queryClient ?? getClient();
-
-  // Point Base UI portals (Select/Combobox popups, Dialogs) at the scoped
-  // wrapper so they render inside `.xtandard-audit` — the embed stylesheet
-  // is scoped, so anything portaled to document.body would be unstyled.
-  const wrapperRef = React.useRef<HTMLDivElement>(null);
-  setPortalContainerRef(wrapperRef);
-
-  // Resolve the routing strategy to a wouter location hook (+ base). The memory
-  // hook is created once so its in-memory history survives re-renders.
-  const memoryHook = React.useMemo(() => memoryLocation().hook, []);
-  const { hook, base } = React.useMemo(() => {
-    if (typeof routing === "function") return { hook: routing, base: routerBase };
-    if (routing === "browser") return { hook: useBrowserLocation, base: routerBase };
-    if (routing === "memory") return { hook: memoryHook, base: "" };
-    return { hook: useHashLocation, base: "" };
-  }, [routing, routerBase, memoryHook]);
-
-  return (
-    <QueryClientProvider client={client}>
-      {/* Toasts render inside the wrapper so the scoped stylesheet + theme reach them. */}
-      <div
-        ref={wrapperRef}
-        data-theme={resolvedTheme}
-        className={className ? `xtandard-audit ${className}` : "xtandard-audit"}
-      >
-        <ToastProvider>
-          <App
-            locationHook={hook}
-            base={base}
-            logoUrl={logoUrl}
-            initialTenant={initialTenant}
-            showThemeToggle={theme === "auto"}
-          />
-        </ToastProvider>
-      </div>
-    </QueryClientProvider>
-  );
-}
+export const AuditDashboard: React.FC<AuditDashboardProps> = embed.Dashboard;
 
 /**
  * The customer-facing log viewer as an embeddable React component. Renders
  * the same shell as {@link AuditDashboard} with the portal token attached as
  * a Bearer credential; the server scopes every request to the token's tenant
- * (and its optional view filter) and `/config` flips the shell into the
- * reduced portal chrome.
+ * (and its optional view filter) and the shell renders the reduced portal
+ * chrome from the first render.
  */
-export function AuditPortal({ token, ...rest }: AuditPortalProps): React.ReactElement {
-  // Attach the token synchronously so child queries (run on mount) send it; the
-  // effect keeps it current when the host swaps tokens (e.g. re-mint on expiry).
-  // The API client is module-level state, so this assumes one embed per page —
-  // same trade-off setApiBase makes.
-  setApiToken(token);
-  React.useEffect(() => {
-    setApiToken(token);
-  }, [token]);
+export const AuditPortal: React.FC<AuditPortalProps> = embed.TokenEmbed;
 
-  return <AuditDashboard {...rest} />;
-}
-
-export { setApiBase, setApiToken, type FetchLike } from "./ui/api.ts";
+export { setApiBase, setApiToken } from "./ui/api.ts";
+export type { FetchLike };
 export {
   setThemePref,
   getThemePref,
