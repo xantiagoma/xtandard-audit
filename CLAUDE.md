@@ -1,7 +1,26 @@
 # @xtandard/audit
 
-Self-hosted, embeddable, Standard Webhooks-compliant outbound-webhooks control plane. Bun for
-tooling; `bun run check && bun run test` is the gate (`bun run format` before committing).
+Self-hosted, embeddable, tamper-evident audit-log control plane for B2B SaaS, as a library. Bun for
+tooling; `bun run check && bun run test && bun run test:bun` is the gate (`bun run format` before
+committing). Structure, naming and docs mirror `xtandard-webhooks` and `xtandard-flags`; every
+deviation is an ADR in `docs/ADR` (★ in PLAN.md's index).
+
+## Invariants (break one and verification breaks for real customers)
+
+- The integrity format (`src/integrity.ts`, `src/canonical.ts`) is a wire contract: never change what
+  is hashed or how without bumping `integrity.v` / checkpoint `v` and keeping the old verifier path.
+- `record()` throws rather than silently dropping (ADR 0002); the recorder never drops without
+  calling `onError`.
+- Retention only removes chain **prefixes** and writes a `base` checkpoint; streams hold it back.
+- Every storage driver passes `test/storage-contract.ts` (`runStorageContractTests`); native
+  `queryEvents` must agree with `matchesQuery` in `src/query.ts`.
+- New subpath = `src/entry-*.ts` (with `@module`), `vite.config.ts` `pack.entry`, `package.json`
+  `exports`, `examples/tsconfig.json` `paths`, and `site/manifest.ts` if it needs a page.
+
+## Shared machine
+
+Heavy jobs (full suites, coverage, tsc, builds, docs:build, Playwright) go through
+`HEAVY_SLOTS=3 /Users/santi/Projects/xtandard-missions/heavy.sh <cmd>` on the maintainer's machine.
 
 ## Docs Site
 
