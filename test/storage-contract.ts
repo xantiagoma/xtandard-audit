@@ -159,7 +159,7 @@ export function runStorageContractTests(
 
     test("prefixes are literal: % _ ! * [ ] ? \\ are not wildcards", { timeout: t }, async () => {
       const storage = await makeStorage();
-      const specials = ["%", "_", "!", "*", "[", "]", "?", "\\"];
+      const specials = ["%", "_", "!", "*", "[", "]", "?", "\\", ":", "%25"];
       for (const ch of specials) {
         await storage.setItem(`aud/w/a${ch}b/k`, ch);
         await storage.setItem(`aud/w/aXb/k${ch}`, ch);
@@ -168,6 +168,10 @@ export function runStorageContractTests(
         expect(await storage.getKeys(`aud/w/a${ch}b/`)).toEqual([`aud/w/a${ch}b/k`]);
       }
       expect((await storage.getKeys("aud/w/aXb/")).length).toBe(specials.length);
+      // Plain string prefixes, not only segment boundaries.
+      for (const ch of specials) {
+        expect(await storage.getKeys(`aud/w/a${ch}b`)).toEqual([`aud/w/a${ch}b/k`]);
+      }
     });
 
     test("zero-padded seq keys sort lexicographically = numerically", { timeout: t }, async () => {

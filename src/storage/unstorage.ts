@@ -79,7 +79,10 @@ export function createUnstorageStorage(options: UnstorageStorageOptions): AuditS
     async getKeys(prefix: string): Promise<string[]> {
       // unstorage's getKeys takes a base and returns matching keys with `:`
       // separators; convert them back so callers get their original `/` keys.
-      const keys = await storage.getKeys(toUnstorageKey(prefix));
+      // unstorage treats the base as a namespace (`aud:x` lists `aud:x:*` only), while the
+      // contract is a plain string prefix: list from the last `/` boundary, then filter.
+      const base = prefix.slice(0, prefix.lastIndexOf("/") + 1);
+      const keys = await storage.getKeys(toUnstorageKey(base));
       return keys.map(fromUnstorageKey).filter((key) => key.startsWith(prefix));
     },
   } satisfies AuditStorage;
