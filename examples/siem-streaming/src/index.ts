@@ -56,14 +56,17 @@ const runner = createStreamRunner(audit, {
     {
       name: "witness",
       sink: callbackSink((batch) => {
-        for (const item of batch.items) if (item.kind === "checkpoint") witnessed.push(item.checkpoint);
+        for (const item of batch.items)
+          if (item.kind === "checkpoint") witnessed.push(item.checkpoint);
       }, "witness"),
     },
   ],
   interval: "500ms",
   maxBackoff: "4s",
   onError: (err, { stream, tenant }) =>
-    console.log(`  ✗ ${stream}/${tenant}: ${err instanceof Error ? err.message : String(err)} → backing off`),
+    console.log(
+      `  ✗ ${stream}/${tenant}: ${err instanceof Error ? err.message : String(err)} → backing off`,
+    ),
 });
 
 // Streams start "now" by default: only events recorded from here on are delivered.
@@ -85,7 +88,9 @@ for (let i = 0; i < 40; i++) {
   });
   if (i % 10 === 9) {
     const status = await runner.status();
-    const lag = status.map((s) => `${s.name}=${s.tenants.reduce((n, t) => n + t.lag, 0)}`).join(" ");
+    const lag = status
+      .map((s) => `${s.name}=${s.tenants.reduce((n, t) => n + t.lag, 0)}`)
+      .join(" ");
     console.log(`→ recorded ${i + 1} events · lag ${lag}`);
   }
   await Bun.sleep(60);
@@ -106,8 +111,10 @@ for (;;) {
 }
 await runner.stop();
 
-console.log(`\nDrained. Accepted by the SIEM: ${receiver.accepted.ingest.size} items; ` +
-  `by the customer webhook: ${receiver.accepted.webhook.size} items; witnessed checkpoints: ${witnessed.length}.`);
+console.log(
+  `\nDrained. Accepted by the SIEM: ${receiver.accepted.ingest.size} items; ` +
+    `by the customer webhook: ${receiver.accepted.webhook.size} items; witnessed checkpoints: ${witnessed.length}.`,
+);
 
 // ── The witness at work: verify an export against checkpoints kept elsewhere ──
 const stream = await exportEvents(audit, { tenant: "acme" }, { format: "bundle" });

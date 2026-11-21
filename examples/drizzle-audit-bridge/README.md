@@ -11,7 +11,9 @@ import { withDrizzleAudit, withDrizzleAuditContext } from "drizzle-audit";
 import { createDrizzleAuditStorage } from "@xtandard/audit/drizzle-audit";
 
 const db = withDrizzleAudit(rawDb, {
-  storage: createDrizzleAuditStorage(audit, { tenant: (entry) => entry.metadata?.tenantId as string }),
+  storage: createDrizzleAuditStorage(audit, {
+    tenant: (entry) => entry.metadata?.tenantId as string,
+  }),
   dataMode: "both",
   onError: "throw", // the query fails when its audit event cannot be recorded
 });

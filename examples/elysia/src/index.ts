@@ -54,10 +54,15 @@ new Elysia()
   )
   .get(
     "/",
-    () => new Response(renderDemoPage("/audit"), { headers: { "content-type": "text/html; charset=utf-8" } }),
+    () =>
+      new Response(renderDemoPage("/audit"), {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
   )
   .get("/api/me", ({ user }) => send(me(user)))
-  .post("/api/members", async ({ user, body }) => send(await inviteMember(audit, user, input(body))))
+  .post("/api/members", async ({ user, body }) =>
+    send(await inviteMember(audit, user, input(body))),
+  )
   .post("/api/members/:id/role", async ({ user, params, body }) =>
     send(await changeRole(audit, user, params.id, input(body))),
   )

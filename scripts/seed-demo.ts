@@ -35,7 +35,7 @@ import * as v from "valibot";
 import { createAuditCore, type AuditCore } from "../src/core.ts";
 import { exportEvents, type ExportFormat } from "../src/export.ts";
 import type { AuditActor, AuditContext, AuditEventInput, AuditTarget } from "../src/schema.ts";
-import { defineActions, type ActionMap } from "../src/standard-schema.ts";
+import { defineActions, type ActionMap, type ActionSpec } from "../src/standard-schema.ts";
 
 // ── The action catalog ───────────────────────────────────────────────────────
 
@@ -68,7 +68,10 @@ export const DEMO_ACTIONS = defineActions({
     description: "A user enrolled a second factor",
     metadata: v.object({ factor: v.picklist(["totp", "webauthn"]) }),
   },
-  "user.password_changed": { group: "Authentication", description: "A user changed their password" },
+  "user.password_changed": {
+    group: "Authentication",
+    description: "A user changed their password",
+  },
   // Members
   "member.invited": {
     group: "Members",
@@ -156,7 +159,11 @@ export const DEMO_ACTIONS = defineActions({
     targets: ["project"],
     metadata: v.object({ region: v.string() }),
   },
-  "project.deleted": { group: "Projects", description: "A project was deleted", targets: ["project"] },
+  "project.deleted": {
+    group: "Projects",
+    description: "A project was deleted",
+    targets: ["project"],
+  },
   "env_var.updated": {
     group: "Projects",
     description: "An environment variable was set (the value is never logged)",
@@ -411,7 +418,7 @@ function buildTimeline(options: SeedOptions = {}): Step[] {
   const hex = (n: number) =>
     Array.from({ length: n }, () => Math.floor(rand() * 16).toString(16)).join("");
   const id = (prefix: string, n = 10) =>
-    `${prefix}_${Array.from({ length: n }, () => pick("0123456789abcdefghijkmnpqrstuvwxyz")).join("")}`;
+    `${prefix}_${Array.from({ length: n }, () => pick([..."0123456789abcdefghijkmnpqrstuvwxyz"])).join("")}`;
 
   for (const spec of DEMO_TENANTS) {
     const ipBase = pick(["203.0.113", "198.51.100", "192.0.2"]);
@@ -427,7 +434,8 @@ function buildTimeline(options: SeedOptions = {}): Step[] {
     });
     const people: Person[] = spec.people.map(([name, role]) => makePerson(name, role, 0));
     const owner = people[0]!;
-    const admins = () => people.filter((p) => (p.role === "owner" || p.role === "admin") && active(p));
+    const admins = () =>
+      people.filter((p) => (p.role === "owner" || p.role === "admin") && active(p));
     const billingPeople = () =>
       people.filter((p) => (p.role === "billing" || p.role === "owner") && active(p));
     let today = 0;
@@ -447,14 +455,19 @@ function buildTimeline(options: SeedOptions = {}): Step[] {
     });
     const userTarget = (p: Person): AuditTarget => ({ type: "user", id: p.id, name: p.name });
     /** A time on day `d`, at local hour `h` (fractional) of the tenant. */
-    const at = (d: number, h: number) =>
-      Math.round(start + d * DAY + (h - spec.utcOffset) * HOUR);
+    const at = (d: number, h: number) => Math.round(start + d * DAY + (h - spec.utcOffset) * HOUR);
     const workHour = () => 8 + rand() * 10;
     const rec = (
       time: number,
       input: Omit<AuditEventInput, "tenant">,
     ): AuditEventInput & { tenant: string } => {
-      const full = { tenant: spec.key, occurredAt: new Date(time).toISOString(), ...input };
+      // Explicit outcomes everywhere (failures set their own), so the UI shows ✓ / ✗ per row.
+      const full = {
+        tenant: spec.key,
+        occurredAt: new Date(time).toISOString(),
+        outcome: "success" as const,
+        ...input,
+      };
       steps.push({ at: time, kind: "record", input: full });
       return full;
     };
@@ -560,7 +573,14 @@ function buildTimeline(options: SeedOptions = {}): Step[] {
             actor: ciActor,
             targets: [project, deployment],
             context: { ip: "34.82.17.201", userAgent: "deploy-cli/3.4.1 (github-actions)" },
-            metadata: { environment: env, commit, branch: env === "production" ? "main" : pick(["feat/checkout", "fix/timeout", "chore/deps", "feat/search"]) },
+            metadata: {
+              environment: env,
+              commit,
+              branch:
+                env === "production"
+                  ? "main"
+                  : pick(["feat/checkout", "fix/timeout", "chore/deps", "feat/search"]),
+            },
             description: `ci-deploy deployed ${project.name}@${commit} to ${env}`,
           });
           if (env === "production" && chance(0.04)) {
@@ -581,7 +601,13 @@ function buildTimeline(options: SeedOptions = {}): Step[] {
       if (workday && chance(0.18)) {
         const by = pick(admins());
         const project = pick(projects);
-        const key = pick(["DATABASE_URL", "STRIPE_SECRET_KEY", "SENTRY_DSN", "FEATURE_FLAGS", "REDIS_URL"]);
+        const key = pick([
+          "DATABASE_URL",
+          "STRIPE_SECRET_KEY",
+          "SENTRY_DSN",
+          "FEATURE_FLAGS",
+          "REDIS_URL",
+        ]);
         const environment = pick(["production", "preview", "development"]);
         rec(at(d, workHour()), {
           action: "env_var.updated",
@@ -625,7 +651,11 @@ function buildTimeline(options: SeedOptions = {}): Step[] {
       }
       if (workday && chance(0.04)) {
         const by = pick(admins());
-        const scopes = pick([["deployments:write"], ["projects:read", "deployments:read"], ["env:write", "deployments:write"]]);
+        const scopes = pick([
+          ["deployments:write"],
+          ["projects:read", "deployments:read"],
+          ["env:write", "deployments:write"],
+        ]);
         const key: AuditTarget = {
           type: "api_key",
           id: id("key", 16),
@@ -720,7 +750,11 @@ function buildTimeline(options: SeedOptions = {}): Step[] {
               action: "invoice.refunded",
               actor: { id: "usr_ops_rivera", type: "operator", name: "Sam Rivera (Finance)" },
               targets: [inv],
-              metadata: { amount: spec.seatPrice, currency: spec.currency, reason: "seat billed twice" },
+              metadata: {
+                amount: spec.seatPrice,
+                currency: spec.currency,
+                reason: "seat billed twice",
+              },
               description: `Refunded one seat on ${inv.name} after a request by ${by.name}`,
             });
           }
@@ -781,7 +815,11 @@ function buildTimeline(options: SeedOptions = {}): Step[] {
       if (d === 1 || (spec.key === "acme" && d === 25)) {
         const by = admins()[0] ?? owner;
         const region = pick(["us-east-1", "eu-central-1", "eu-west-2"]);
-        const project: AuditTarget = { type: "project", id: id("prj"), name: `${pick(["billing", "search", "mobile", "ml"])}-${pick(["service", "worker", "gateway"])}` };
+        const project: AuditTarget = {
+          type: "project",
+          id: id("prj"),
+          name: `${pick(["billing", "search", "mobile", "ml"])}-${pick(["service", "worker", "gateway"])}`,
+        };
         projects.push(project);
         rec(at(d, 13), {
           action: "project.created",
@@ -868,7 +906,11 @@ function buildTimeline(options: SeedOptions = {}): Step[] {
           name: "Jordan Lee (Support)",
           email: "jordan.lee@support.example",
         };
-        const supportCtx: AuditContext = { ip: "10.20.0.14", userAgent: USER_AGENTS[1], requestId: `req_${hex(16)}` };
+        const supportCtx: AuditContext = {
+          ip: "10.20.0.14",
+          userAgent: USER_AGENTS[1],
+          requestId: `req_${hex(16)}`,
+        };
         rec(at(d, 14), {
           action: "support.impersonation_started",
           actor: support,
@@ -963,11 +1005,13 @@ export interface SeedSummary {
  * running retention once, so a tenant with a short retention window shows a
  * pruned, base-anchored chain.
  */
-export async function seedDemo(
-  core: AuditCore<ActionMap>,
+export async function seedDemo<A extends ActionMap>(
+  typedCore: AuditCore<A>,
   clock: DemoClock,
   options: SeedOptions & { log?: (line: string) => void } = {},
 ): Promise<SeedSummary> {
+  // The timeline is built from plain inputs; the core still validates them against its catalog.
+  const core = typedCore as unknown as AuditCore<ActionMap>;
   const log = options.log ?? (() => {});
   const steps = buildTimeline(options);
   const summary: SeedSummary = { events: {}, exports: 0, erasures: 0, checkpoints: {}, pruned: {} };
@@ -984,7 +1028,12 @@ export async function seedDemo(
         break;
       }
       case "erase-actor":
-        await core.eraseActor(step.tenant, step.actorId, { reason: step.reason }, operator(step.by));
+        await core.eraseActor(
+          step.tenant,
+          step.actorId,
+          { reason: step.reason },
+          operator(step.by),
+        );
         summary.erasures++;
         break;
       case "erase":
@@ -1058,17 +1107,17 @@ if (import.meta.main) {
     process.exit(1);
   }
   // The CLI's `serve` has no code catalog: persist ours so its UI shows descriptions/groups.
-  for (const [name, spec] of Object.entries(DEMO_ACTIONS)) {
+  for (const [name, spec] of Object.entries(DEMO_ACTIONS) as [string, ActionSpec][]) {
     await core.upsertAction({
       name,
       ...(spec.description ? { description: spec.description } : {}),
       ...(spec.group ? { group: spec.group } : {}),
       ...(spec.targets ? { targets: [...spec.targets] } : {}),
-      ...("deprecated" in spec ? { deprecated: true } : {}),
+      ...(spec.deprecated ? { deprecated: true } : {}),
     });
   }
   console.log(`Seeding ${process.env.STORAGE_DRIVER} storage …`);
-  const summary = await seedDemo(core as unknown as AuditCore<ActionMap>, clock, {
+  const summary = await seedDemo(core, clock, {
     log: console.log,
   });
   console.log(summary);

@@ -8,11 +8,11 @@ side in every mode.
 
 ## What's here
 
-| `AUTH_DEMO` | Authentication     | Authorization                                                          |
-| ----------- | ------------------ | ---------------------------------------------------------------------- |
-| `none`      | none (open)        | `noAuthorization()` — everything allowed                               |
-| `basic`     | HTTP Basic         | roles; one **encrypted** (scrypt) user, one **plaintext** (dev only)   |
-| `delegated` | `X-API-Key` lookup | roles; `delegatedAuth` — bring-your-own auth is one `Request → Principal` |
+| `AUTH_DEMO` | Authentication     | Authorization                                                              |
+| ----------- | ------------------ | -------------------------------------------------------------------------- |
+| `none`      | none (open)        | `noAuthorization()` — everything allowed                                   |
+| `basic`     | HTTP Basic         | roles; one **encrypted** (scrypt) user, one **plaintext** (dev only)       |
+| `delegated` | `X-API-Key` lookup | roles; `delegatedAuth` — bring-your-own auth is one `Request → Principal`  |
 | `roles`     | Basic, 3 users     | `rolesAuthorization()` — **admin / auditor / viewer** (the default policy) |
 
 The default role policy: `admin` → everything; `auditor` → every read, plus

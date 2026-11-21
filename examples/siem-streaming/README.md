@@ -7,11 +7,11 @@ record path, and nothing is lost while a destination is down.
 
 ## What's here
 
-| Stream     | Sink                                   | Scope                                                      |
-| ---------- | -------------------------------------- | ---------------------------------------------------------- |
-| `siem`     | `httpSink` → `POST /ingest` (JSON)     | every tenant, batches of 25                                |
-| `customer` | `webhookSink` → `POST /webhook`        | tenant `acme`, minus `user.login`; Standard Webhooks-signed |
-| `witness`  | `callbackSink` keeping checkpoints only | every tenant — signed chain heads stored outside the DB    |
+| Stream     | Sink                                    | Scope                                                       |
+| ---------- | --------------------------------------- | ----------------------------------------------------------- |
+| `siem`     | `httpSink` → `POST /ingest` (JSON)      | every tenant, batches of 25                                 |
+| `customer` | `webhookSink` → `POST /webhook`         | tenant `acme`, minus `user.login`; Standard Webhooks-signed |
+| `witness`  | `callbackSink` keeping checkpoints only | every tenant — signed chain heads stored outside the DB     |
 
 - **`src/receiver.ts`** — one local server playing the SIEM intake and the
   customer's endpoint. The webhook route verifies every request with

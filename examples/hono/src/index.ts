@@ -59,7 +59,8 @@ app.use(
 
 // Plain web Responses — Hono handlers can return them directly.
 const send = (r: Result) => Response.json(r.body, { status: r.status });
-const body = async (req: Request) => ((await req.json().catch(() => null)) ?? {}) as Record<string, string>;
+const body = async (req: Request) =>
+  ((await req.json().catch(() => null)) ?? {}) as Record<string, string>;
 
 app.get("/", (c) => c.html(renderDemoPage("/audit")));
 app.get("/api/me", (c) => send(me(c.get("user"))));

@@ -102,7 +102,18 @@ async function exercise(storage: AuditStorage): Promise<string[]> {
   ];
 }
 
-const HEADER = ["events", "invoice.*", "by grace", "→ alan", "failures", '"refund"', "Oct 2", "first 3 (asc) | page 2", "verify", "log"];
+const HEADER = [
+  "events",
+  "invoice.*",
+  "by grace",
+  "→ alan",
+  "failures",
+  '"refund"',
+  "Oct 2",
+  "first 3 (asc) | page 2",
+  "verify",
+  "log",
+];
 const rows: [string, string[]][] = [];
 async function run(name: string, make: () => AuditStorage | Promise<AuditStorage>) {
   const storage = await make();
@@ -115,7 +126,9 @@ async function run(name: string, make: () => AuditStorage | Promise<AuditStorage
 const skipped: string[] = [];
 
 // ── No server needed ─────────────────────────────────────────────────────────
-await run("memory", async () => (await import("@xtandard/audit/storage/memory")).createMemoryStorage());
+await run("memory", async () =>
+  (await import("@xtandard/audit/storage/memory")).createMemoryStorage(),
+);
 await run("file", async () =>
   (await import("@xtandard/audit/storage/file")).createFileStorage({ dir: `./.audit/${RUN}` }),
 );

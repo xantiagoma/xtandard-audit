@@ -33,11 +33,14 @@ export function startReceiver(options: { failFirst: number; webhookSecret: strin
     hostname: "127.0.0.1",
     async fetch(request) {
       const route = new URL(request.url).pathname.slice(1);
-      if (route !== "ingest" && route !== "webhook") return new Response("not found", { status: 404 });
+      if (route !== "ingest" && route !== "webhook")
+        return new Response("not found", { status: 404 });
       const n = ++seen[route];
       if (n <= options.failFirst) {
         await request.arrayBuffer();
-        console.log(`  ← ${route.padEnd(7)} 503 (failing request ${n}/${options.failFirst} on purpose)`);
+        console.log(
+          `  ← ${route.padEnd(7)} 503 (failing request ${n}/${options.failFirst} on purpose)`,
+        );
         return new Response("temporarily unavailable", { status: 503 });
       }
       let batch: StreamBatch;
@@ -55,7 +58,9 @@ export function startReceiver(options: { failFirst: number; webhookSecret: strin
       }
       for (const item of batch.items) accepted[route].add(itemId(item));
       const verified = route === "webhook" ? " (signature verified)" : "";
-      console.log(`  ← ${route.padEnd(7)} 200 ${batch.tenant}: ${describe(batch.items)}${verified}`);
+      console.log(
+        `  ← ${route.padEnd(7)} 200 ${batch.tenant}: ${describe(batch.items)}${verified}`,
+      );
       return new Response(null, { status: 200 });
     },
   });

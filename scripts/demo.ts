@@ -34,13 +34,7 @@ import { httpSink } from "../src/sinks/http.ts";
 import { splunkSink } from "../src/sinks/splunk.ts";
 import type { AuditActor } from "../src/schema.ts";
 import { createMemoryStorage } from "../src/storage/memory.ts";
-import {
-  DEMO_ACTIONS,
-  DEMO_CORE_OPTIONS,
-  DEMO_TENANTS,
-  demoClock,
-  seedDemo,
-} from "./seed-demo.ts";
+import { DEMO_ACTIONS, DEMO_CORE_OPTIONS, DEMO_TENANTS, demoClock, seedDemo } from "./seed-demo.ts";
 
 const PORT = Number(process.env.PORT ?? 7790);
 const BASE = `http://localhost:${PORT}`;

@@ -14,7 +14,12 @@
  * 4. … and with `xtandard-audit verify --bundle` — exit codes for CI/auditors:
  *    0 valid and signed through the end · 2 valid but the tail is unsigned · 1 invalid.
  */
-import { createAuditCore, ed25519Signer, exportEvents, generateSigningKeyPair } from "@xtandard/audit";
+import {
+  createAuditCore,
+  ed25519Signer,
+  exportEvents,
+  generateSigningKeyPair,
+} from "@xtandard/audit";
 import { createMemoryStorage } from "@xtandard/audit/storage/memory";
 import { verifyBundle } from "@xtandard/audit/verify";
 
@@ -70,7 +75,9 @@ await exportBundle("globex", false);
 // The tamper: change one invoice's amount and keep everything else — including the hashes.
 const tampered = acme.replace('"amount":4900', '"amount":49'); // the first invoice only
 await Bun.write(`${OUT}/tampered.jsonl`, tampered);
-console.log(`Wrote ${OUT}/acme.jsonl, ${OUT}/globex.jsonl, ${OUT}/tampered.jsonl and ${OUT}/jwks.json\n`);
+console.log(
+  `Wrote ${OUT}/acme.jsonl, ${OUT}/globex.jsonl, ${OUT}/tampered.jsonl and ${OUT}/jwks.json\n`,
+);
 
 // ── 3. Verify in code: @xtandard/audit/verify ────────────────────────────────
 console.log("@xtandard/audit/verify:");
@@ -88,7 +95,15 @@ for (const file of ["acme", "globex", "tampered"]) {
 console.log("\nxtandard-audit verify --bundle <file> --jwks jwks.json:");
 for (const file of ["acme", "globex", "tampered"]) {
   const proc = Bun.spawn(
-    ["bunx", "xtandard-audit", "verify", "--bundle", `${OUT}/${file}.jsonl`, "--jwks", `${OUT}/jwks.json`],
+    [
+      "bunx",
+      "xtandard-audit",
+      "verify",
+      "--bundle",
+      `${OUT}/${file}.jsonl`,
+      "--jwks",
+      `${OUT}/jwks.json`,
+    ],
     { stdout: "pipe", stderr: "pipe" },
   );
   const [stdout, stderr, code] = await Promise.all([
@@ -99,4 +114,6 @@ for (const file of ["acme", "globex", "tampered"]) {
   console.log(`\n$ xtandard-audit verify --bundle ${file}.jsonl --jwks jwks.json   → exit ${code}`);
   console.log((stdout + stderr).trim().replace(/^/gm, "  "));
 }
-console.log("\nExit codes: 0 valid and signed through the end · 2 valid, unsigned tail · 1 invalid.");
+console.log(
+  "\nExit codes: 0 valid and signed through the end · 2 valid, unsigned tail · 1 invalid.",
+);

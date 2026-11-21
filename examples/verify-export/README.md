@@ -24,11 +24,11 @@ re-derives every hash, checks every link, and verifies the Ed25519 signatures.
 4. runs **`xtandard-audit verify --bundle <file> --jwks jwks.json`** on each and
    prints the exit code.
 
-| Exit | Meaning                                                                                        |
-| ---- | ---------------------------------------------------------------------------------------------- |
+| Exit | Meaning                                                                                         |
+| ---- | ----------------------------------------------------------------------------------------------- |
 | `0`  | valid, anchored (genesis or a verified checkpoint), every event covered by a verified signature |
 | `2`  | valid, but the tail (or everything) is unsigned — consistent, yet truncating it is undetectable |
-| `1`  | invalid: tampered content, broken links, gaps or a bad signature                               |
+| `1`  | invalid: tampered content, broken links, gaps or a bad signature                                |
 
 ## Run it
 

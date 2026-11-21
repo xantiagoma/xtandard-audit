@@ -19,18 +19,21 @@ export const actions = defineActions({
   "member.invited": {
     group: "Members",
     description: "A member was invited to the organization",
+    outcome: "success", // the default when record() passes none
     targets: ["user"],
     metadata: v.object({ role: v.picklist(["admin", "member", "viewer"]) }),
   },
   "member.role_changed": {
     group: "Members",
     description: "A member's role changed (or a change was refused)",
+    outcome: "success", // the default when record() passes none
     targets: ["user"],
     metadata: v.object({ from: v.string(), to: v.string() }),
   },
   "invoice.paid": {
     group: "Billing",
     description: "An invoice was paid",
+    outcome: "success", // the default when record() passes none
     targets: ["invoice"],
     metadata: v.object({ amount: v.number(), currency: v.string(), card: v.string() }),
   },
@@ -83,17 +86,73 @@ const orgs: Record<string, { name: string }> = {
 };
 
 const users: User[] = [
-  { id: "usr_ada", name: "Ada Lovelace", email: "ada@acme.com", orgId: "acme", role: "owner", status: "active" },
-  { id: "usr_grace", name: "Grace Hopper", email: "grace@acme.com", orgId: "acme", role: "admin", status: "active" },
-  { id: "usr_alan", name: "Alan Turing", email: "alan@acme.com", orgId: "acme", role: "member", status: "active" },
-  { id: "usr_hank", name: "Hank Scorpio", email: "hank@globex.de", orgId: "globex", role: "owner", status: "active" },
-  { id: "usr_lena", name: "Lena Fischer", email: "lena@globex.de", orgId: "globex", role: "viewer", status: "active" },
+  {
+    id: "usr_ada",
+    name: "Ada Lovelace",
+    email: "ada@acme.com",
+    orgId: "acme",
+    role: "owner",
+    status: "active",
+  },
+  {
+    id: "usr_grace",
+    name: "Grace Hopper",
+    email: "grace@acme.com",
+    orgId: "acme",
+    role: "admin",
+    status: "active",
+  },
+  {
+    id: "usr_alan",
+    name: "Alan Turing",
+    email: "alan@acme.com",
+    orgId: "acme",
+    role: "member",
+    status: "active",
+  },
+  {
+    id: "usr_hank",
+    name: "Hank Scorpio",
+    email: "hank@globex.de",
+    orgId: "globex",
+    role: "owner",
+    status: "active",
+  },
+  {
+    id: "usr_lena",
+    name: "Lena Fischer",
+    email: "lena@globex.de",
+    orgId: "globex",
+    role: "viewer",
+    status: "active",
+  },
 ];
 
 const invoices: Invoice[] = [
-  { id: "inv_acme_1", orgId: "acme", number: "INV-2026-0042", amount: 49_00, currency: "USD", status: "open" },
-  { id: "inv_acme_2", orgId: "acme", number: "INV-2026-0043", amount: 1_250_00, currency: "USD", status: "open" },
-  { id: "inv_globex_1", orgId: "globex", number: "INV-2026-0108", amount: 390_00, currency: "EUR", status: "open" },
+  {
+    id: "inv_acme_1",
+    orgId: "acme",
+    number: "INV-2026-0042",
+    amount: 49_00,
+    currency: "USD",
+    status: "open",
+  },
+  {
+    id: "inv_acme_2",
+    orgId: "acme",
+    number: "INV-2026-0043",
+    amount: 1_250_00,
+    currency: "USD",
+    status: "open",
+  },
+  {
+    id: "inv_globex_1",
+    orgId: "globex",
+    number: "INV-2026-0108",
+    amount: 390_00,
+    currency: "EUR",
+    status: "open",
+  },
 ];
 
 /**

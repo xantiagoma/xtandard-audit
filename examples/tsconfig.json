@@ -55,7 +55,14 @@
     }
   },
   // The demo scripts import the source directly; typecheck them with the examples.
-  "include": ["**/*.ts", "**/*.tsx", "../scripts/demo.ts", "../scripts/seed-demo.ts", "../scripts/example.ts"],
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "../scripts/demo.ts",
+    "../scripts/seed-demo.ts",
+    "../scripts/example.ts",
+    "../src/ui/assets.d.ts"
+  ],
   // Tool configs typed by each example's own install (drizzle-kit is not a repo devDependency).
   "exclude": ["**/node_modules/**", "**/.audit/**", "postgres/drizzle.config.ts"]
 }

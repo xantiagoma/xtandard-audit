@@ -121,7 +121,9 @@ Bun.serve({
     if (url.pathname === "/portal-token" && request.method === "POST") {
       const tenant = url.searchParams.get("tenant") ?? "acme";
       const hide = url.searchParams.get("hide");
-      const filter: PortalFilter | undefined = hide ? { excludeActions: hide.split(",") } : undefined;
+      const filter: PortalFilter | undefined = hide
+        ? { excludeActions: hide.split(",") }
+        : undefined;
       const token = await createPortalToken(PORTAL_SECRET, tenant, {
         expiresIn: "1h",
         ...(filter ? { filter } : {}),
@@ -136,10 +138,13 @@ console.log(`auth demo "${mode}" on http://localhost:${port}\n`);
 if (mode === "delegated") {
   console.log("API keys (X-API-Key header): key-admin | key-auditor | key-viewer\n");
 }
-if (mode === "roles") console.log("Users: alice/alice (admin), bob/bob (auditor), carol/carol (viewer)\n");
+if (mode === "roles")
+  console.log("Users: alice/alice (admin), bob/bob (auditor), carol/carol (viewer)\n");
 console.log("Try the admin API (who you are decides what you may do):");
 console.log(`  curl -s localhost:${port}/api/tenants`);
 console.log("Mint a customer-scoped portal token (works in every mode):");
 console.log(`  curl -s -X POST 'localhost:${port}/portal-token?tenant=acme&hide=support.*'`);
 console.log("…then use it as a bearer:");
-console.log(`  curl -s -H 'authorization: Bearer <token>' localhost:${port}/api/tenants/acme/events`);
+console.log(
+  `  curl -s -H 'authorization: Bearer <token>' localhost:${port}/api/tenants/acme/events`,
+);

@@ -15,7 +15,12 @@
  */
 import { desc, eq, sql } from "drizzle-orm";
 import * as v from "valibot";
-import { createAuditCore, defineActions, ed25519Signer, generateSigningKeyPair } from "@xtandard/audit";
+import {
+  createAuditCore,
+  defineActions,
+  ed25519Signer,
+  generateSigningKeyPair,
+} from "@xtandard/audit";
 import { createDrizzleStorage } from "@xtandard/audit/storage/drizzle";
 import * as schema from "./schema.ts";
 
@@ -52,6 +57,22 @@ async function connect() {
 
 const { db, close, label } = await connect();
 
+/**
+ * The signing key must outlive the process: checkpoints already in the database
+ * only verify against the key that signed them. Use AUDIT_SIGNING_KEY (from
+ * `xtandard-audit keygen`, kept in a secret manager); for this demo, fall back to
+ * a key generated once and saved next to the example. (PGlite mode starts empty
+ * every run, so any key works there.)
+ */
+async function signingKey(): Promise<JsonWebKey> {
+  if (process.env.AUDIT_SIGNING_KEY) return JSON.parse(process.env.AUDIT_SIGNING_KEY) as JsonWebKey;
+  const file = Bun.file("./.audit/signing-key.json");
+  if (await file.exists()) return (await file.json()) as JsonWebKey;
+  const { privateJwk } = await generateSigningKeyPair();
+  await Bun.write(file, JSON.stringify(privateJwk));
+  return privateJwk;
+}
+
 const audit = createAuditCore({
   storage: createDrizzleStorage({
     db,
@@ -67,7 +88,7 @@ const audit = createAuditCore({
     },
     "member.invited": { group: "Members", targets: ["user"] },
   }),
-  signer: await ed25519Signer((await generateSigningKeyPair()).privateJwk),
+  signer: await ed25519Signer(await signingKey()),
 });
 
 // ── 1. A user action: pay an invoice, record it ───────────────────────────────
@@ -102,7 +123,9 @@ console.log(`${label}: paid ${invoiceId} and recorded 2 audit events.\n`);
 const billing = await audit.query({ tenant: "acme", actions: ["invoice.*"], limit: 5 });
 console.log("invoice.* (newest first):");
 for (const e of billing.items) {
-  console.log(`  #${e.seq} ${e.occurredAt} ${e.action} ${e.targets.map((t) => `${t.type}:${t.id}`).join(", ")}`);
+  console.log(
+    `  #${e.seq} ${e.occurredAt} ${e.action} ${e.targets.map((t) => `${t.type}:${t.id}`).join(", ")}`,
+  );
 }
 const byTarget = await audit.query({ tenant: "acme", targetType: "invoice", targetId: invoiceId });
 console.log(`events touching ${invoiceId}: ${byTarget.items.length}`);
@@ -110,8 +133,13 @@ const search = await audit.query({ tenant: "acme", search: "grace" });
 console.log(`search "grace": ${search.items.map((e) => e.action).join(", ")}\n`);
 
 // ── 3. They are your tables: plain Drizzle works too ──────────────────────────
+// (pgAuditTables() returns structurally-typed tables, so typed selections go through sql<T>.)
 const rows = await db
-  .select({ seq: auditEvents.seq, action: auditEvents.action, actorId: auditEvents.actorId })
+  .select({
+    seq: sql<number>`${auditEvents.seq}`.mapWith(Number),
+    action: sql<string>`${auditEvents.action}`,
+    actorId: sql<string>`${auditEvents.actorId}`,
+  })
   .from(auditEvents)
   .where(eq(auditEvents.tenant, "acme"))
   .orderBy(desc(auditEvents.seq))

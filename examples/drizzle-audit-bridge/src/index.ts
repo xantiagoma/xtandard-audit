@@ -61,13 +61,19 @@ const asUser = <T>(userId: string, tenantId: string, query: () => PromiseLike<T>
   );
 
 const [storefront] = await asUser("usr_ada", "acme", () =>
-  db.insert(projects).values({ orgId: "acme", name: "storefront", plan: "pro", seats: 5 }).returning(),
+  db
+    .insert(projects)
+    .values({ orgId: "acme", name: "storefront", plan: "pro", seats: 5 })
+    .returning(),
 );
 await asUser("usr_grace", "acme", () =>
   db.update(projects).set({ plan: "enterprise", seats: 25 }).where(eq(projects.id, storefront!.id)),
 );
 const [portal] = await asUser("usr_hank", "globex", () =>
-  db.insert(projects).values({ orgId: "globex", name: "portal", plan: "team", seats: 3 }).returning(),
+  db
+    .insert(projects)
+    .values({ orgId: "globex", name: "portal", plan: "team", seats: 3 })
+    .returning(),
 );
 await asUser("usr_hank", "globex", () => db.delete(projects).where(eq(projects.id, portal!.id)));
 // Use `.returning()` on inserts: drizzle-audit then awaits the audit write (and knows the row id).
@@ -84,7 +90,9 @@ for (const tenant of ["acme", "globex"]) {
   console.log(`\n${tenant}: ${page.items.length} events from drizzle-audit`);
   for (const e of page.items) {
     const diff = JSON.stringify(e.metadata.changes);
-    console.log(`  #${e.seq} ${e.action.padEnd(18)} by ${e.actor.id.padEnd(9)} → ${e.targets.map((t) => `${t.type}:${t.id}`).join(", ")}  ${diff}`);
+    console.log(
+      `  #${e.seq} ${e.action.padEnd(18)} by ${e.actor.id.padEnd(9)} → ${e.targets.map((t) => `${t.type}:${t.id}`).join(", ")}  ${diff}`,
+    );
   }
 }
 const history = await audit.query({
@@ -93,12 +101,16 @@ const history = await audit.query({
   targetId: String(storefront!.id),
   order: "asc",
 });
-console.log(`\nHistory of acme projects:${storefront!.id}: ${history.items.map((e) => e.action).join(" → ")}`);
+console.log(
+  `\nHistory of acme projects:${storefront!.id}: ${history.items.map((e) => e.action).join(" → ")}`,
+);
 
 // ── Verify: the bridged events are chained like any other ─────────────────────
 for (const tenant of ["acme", "globex"]) {
   const report = await audit.verify(tenant);
-  console.log(`verify ${tenant}: ${report.ok ? "OK" : "BROKEN"} (${report.checked} events, anchor ${report.anchor})`);
+  console.log(
+    `verify ${tenant}: ${report.ok ? "OK" : "BROKEN"} (${report.checked} events, anchor ${report.anchor})`,
+  );
 }
 
 const [{ n } = { n: 0 }] = (

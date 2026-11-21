@@ -12,7 +12,7 @@ Each example is a standalone mini-project — copy it out, `bun install`, run.
 | [`portal-embed/`](./portal-embed)                 | `<AuditPortal>` inside a host React app, cross-origin, with a server minting portal tokens.              |
 | [`storage-drivers/`](./storage-drivers)           | One contract, every serverless backend (memory, file, sqlite, PGlite, libsql) — the same answers.        |
 | [`postgres/`](./postgres)                         | Docker Postgres + the audit tables in your Drizzle schema (`pgAuditTables()`), migrated by drizzle-kit.  |
-| [`siem-streaming/`](./siem-streaming)             | HTTP + Standard Webhooks + checkpoint-witness streams; the receiver fails first, you watch lag drain.     |
+| [`siem-streaming/`](./siem-streaming)             | HTTP + Standard Webhooks + checkpoint-witness streams; the receiver fails first, you watch lag drain.    |
 | [`drizzle-audit-bridge/`](./drizzle-audit-bridge) | drizzle-audit row changes on PGlite → `createDrizzleAuditStorage` → the chained, tenant-scoped log.      |
 | [`verify-export/`](./verify-export)               | Export signed bundles; verify offline with `@xtandard/audit/verify` and `xtandard-audit verify` (0/2/1). |
 | [`standalone-docker/`](./standalone-docker)       | The standalone image + Postgres with `docker compose`: auth, signing key, portal, retention via env.     |
@@ -23,18 +23,18 @@ Every backend implements the same `AuditStorage` contract (a four-method KV
 plus an optional native event log for indexed queries), so any of them can hold
 the whole log. Where each is demonstrated:
 
-| Backend                   | Import                                                 | Demonstrated in                                                   |
-| ------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------- |
-| memory                    | `@xtandard/audit/storage/memory`                       | [`storage-drivers/`](./storage-drivers), `bun/`, `auth/`, the demo |
-| file                      | `@xtandard/audit/storage/file`                         | [`hono/`](./hono), [`express/`](./express), `storage-drivers/`     |
-| sqlite (`bun:sqlite`)     | `@xtandard/audit/storage/sqlite`                       | [`elysia/`](./elysia), `storage-drivers/`                          |
-| libsql / Turso            | `@xtandard/audit/storage/libsql`                       | `storage-drivers/` (a `file:` URL)                                 |
-| postgres (pg / PGlite)    | `@xtandard/audit/storage/postgres`                     | `storage-drivers/`, [`drizzle-audit-bridge/`](./drizzle-audit-bridge), `standalone-docker/` |
-| drizzle (pg/mysql/sqlite) | `@xtandard/audit/storage/drizzle` + `drizzle/{pg,…}`   | [`postgres/`](./postgres) — your schema, your migrations           |
-| redis                     | `@xtandard/audit/storage/redis`                        | `storage-drivers/` (behind `REDIS_URL`)                            |
-| mongodb                   | `@xtandard/audit/storage/mongodb`                      | `storage-drivers/` (behind `MONGO_URL`)                            |
-| cloudflare-kv             | `@xtandard/audit/storage/cloudflare-kv`                | Workers KV binding                                                 |
-| unstorage (dozens more)   | `@xtandard/audit/storage/unstorage`                    | bridge to Upstash, S3, Vercel KV, …                                |
+| Backend                   | Import                                               | Demonstrated in                                                                             |
+| ------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| memory                    | `@xtandard/audit/storage/memory`                     | [`storage-drivers/`](./storage-drivers), `bun/`, `auth/`, the demo                          |
+| file                      | `@xtandard/audit/storage/file`                       | [`hono/`](./hono), [`express/`](./express), `storage-drivers/`                              |
+| sqlite (`bun:sqlite`)     | `@xtandard/audit/storage/sqlite`                     | [`elysia/`](./elysia), `storage-drivers/`                                                   |
+| libsql / Turso            | `@xtandard/audit/storage/libsql`                     | `storage-drivers/` (a `file:` URL)                                                          |
+| postgres (pg / PGlite)    | `@xtandard/audit/storage/postgres`                   | `storage-drivers/`, [`drizzle-audit-bridge/`](./drizzle-audit-bridge), `standalone-docker/` |
+| drizzle (pg/mysql/sqlite) | `@xtandard/audit/storage/drizzle` + `drizzle/{pg,…}` | [`postgres/`](./postgres) — your schema, your migrations                                    |
+| redis                     | `@xtandard/audit/storage/redis`                      | `storage-drivers/` (behind `REDIS_URL`)                                                     |
+| mongodb                   | `@xtandard/audit/storage/mongodb`                    | `storage-drivers/` (behind `MONGO_URL`)                                                     |
+| cloudflare-kv             | `@xtandard/audit/storage/cloudflare-kv`              | Workers KV binding                                                                          |
+| unstorage (dozens more)   | `@xtandard/audit/storage/unstorage`                  | bridge to Upstash, S3, Vercel KV, …                                                         |
 
 These examples depend on the package via `file:../..`, so they run against
 your local checkout. **Build the package once at the repo root first** (`dist/`

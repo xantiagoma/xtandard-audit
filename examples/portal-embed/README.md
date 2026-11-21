@@ -13,9 +13,7 @@ import "@xtandard/audit/react/styles.css";
 ```
 
 `react` + `react-dom` are peers. Build the package at the repo root first
-(`bun run build` — the React embed needs its `build:react` step; until the UI
-bundle exists this example installs and starts, but the page cannot render the
-portal).
+(`bun run build` — it includes the React embed's `build:react` step).
 
 ## What's here
 

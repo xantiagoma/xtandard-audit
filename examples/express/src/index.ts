@@ -68,8 +68,14 @@ const input = (req: Request) => (req.body ?? {}) as Record<string, string>;
 app.get("/", (_req, res) => {
   res.type("html").send(renderDemoPage("/audit"));
 });
-app.get("/api/me", handle((user) => me(user)));
-app.post("/api/members", handle((user, req) => inviteMember(audit, user, input(req))));
+app.get(
+  "/api/me",
+  handle((user) => me(user)),
+);
+app.post(
+  "/api/members",
+  handle((user, req) => inviteMember(audit, user, input(req))),
+);
 app.post(
   "/api/members/:id/role",
   handle((user, req) => changeRole(audit, user, String(req.params.id), input(req))),

@@ -6,12 +6,20 @@ migrated by drizzle-kit like any other table, queried with indexed SQL.
 ```ts
 // src/schema.ts — next to your tables
 import { pgAuditTables } from "@xtandard/audit/drizzle/pg";
-export const { table: auditKv, events: auditEvents, eventTargets: auditEventTargets } =
-  pgAuditTables(); // xtandard_audit, xtandard_audit_events, xtandard_audit_event_targets
+export const {
+  table: auditKv,
+  events: auditEvents,
+  eventTargets: auditEventTargets,
+} = pgAuditTables(); // xtandard_audit, xtandard_audit_events, xtandard_audit_event_targets
 
 // wherever you build the core
 import { createDrizzleStorage } from "@xtandard/audit/storage/drizzle";
-const storage = createDrizzleStorage({ db, table: auditKv, events: auditEvents, eventTargets: auditEventTargets });
+const storage = createDrizzleStorage({
+  db,
+  table: auditKv,
+  events: auditEvents,
+  eventTargets: auditEventTargets,
+});
 ```
 
 The Drizzle adapter issues no DDL and owns no connection. The tables match what
@@ -40,7 +48,10 @@ docker compose down -v     # when done
 PGLITE=1 bun run start     # no Docker: in-process Postgres; the schema is diffed with drizzle-kit's API
 ```
 
-Set `DATABASE_URL` to use another database.
+Set `DATABASE_URL` to use another database. Checkpoints only verify against the
+key that signed them, so the example signs with `AUDIT_SIGNING_KEY` when set
+(`xtandard-audit keygen`), else with a key it generates once into
+`./.audit/signing-key.json` — re-runs keep verifying.
 
 ## Files
 
