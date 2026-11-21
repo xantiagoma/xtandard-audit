@@ -50,16 +50,16 @@ sees the entry — and the core's `transforms` for the final event.
 
 ### Mapping
 
-| Event field  | Default                                                                                                                                                                                          | Override                |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
-| `tenant`     | the `tenant` option (a key or `(entry) => key`), else `entry.tenantId`, else `entry.metadata.tenantId`, else the ambient audit context's tenant                                                  | `tenant` (optional)     |
-| `action`     | `db.<table>.<insert\|update\|delete>`, lower-cased (unsupported characters → `_`); custom actions keep their name                                                                                | `action: (entry) => …`  |
-| `actor`      | `{ id: userId, type: "user" }`, else the ambient context's actor, else `{ id: "system", type: "system" }`                                                                                        | `actor: (entry) => …`   |
-| `targets`    | `[{ type: tableName, id: rowId }]` (none without both)                                                                                                                                           | `targets: (entry) => …` |
-| `occurredAt` | the entry's `timestamp`                                                                                                                                                                          | —                       |
-| `context`    | `ip`, `userAgent`, `requestId` from `entry.metadata` (string values)                                                                                                                             | —                       |
-| `metadata`   | `{ changes, oldData, newData, extra? }` — `extra` = the rest of `entry.metadata`                                                                                                                 | —                       |
-| `id`         | deterministic: the entry timestamp (48 bits) + 80 bits of SHA-256 over the entry's content (table, action, row id, user, changes) — not `entry.id`, which `drizzleTableStorage` does not persist | —                       |
+| Event field  | Default                                                                                                                                                                                                                  | Override                |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| `tenant`     | the `tenant` option (a key or `(entry) => key`), else `entry.tenantId`, else `entry.metadata.tenantId`, else the ambient audit context's tenant                                                                          | `tenant` (optional)     |
+| `action`     | `db.<table>.<insert\|update\|delete>`, lower-cased (unsupported characters → `_`); custom actions keep their name                                                                                                        | `action: (entry) => …`  |
+| `actor`      | `{ id: userId, type: "user" }`, else the ambient context's actor, else `{ id: "system", type: "system" }`                                                                                                                | `actor: (entry) => …`   |
+| `targets`    | `[{ type: tableName, id: rowId }]` (none without both)                                                                                                                                                                   | `targets: (entry) => …` |
+| `occurredAt` | the entry's `timestamp`                                                                                                                                                                                                  | —                       |
+| `context`    | `ip`, `userAgent`, `requestId` from `entry.metadata` (string values)                                                                                                                                                     | —                       |
+| `metadata`   | `{ changes, oldData, newData, extra? }` — `extra` = the rest of `entry.metadata`                                                                                                                                         | —                       |
+| `id`         | deterministic: the entry timestamp (48 bits) + 80 bits of SHA-256 over the entry's content (table, action, row id, user, changes, old/new data, metadata) — not `entry.id`, which `drizzleTableStorage` does not persist | —                       |
 
 `include: (entry) => boolean` forwards only matching entries. Values are made JSON-safe (Dates →
 ISO strings, bigints → strings, `undefined` dropped).
