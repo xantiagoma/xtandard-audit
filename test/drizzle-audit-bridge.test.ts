@@ -3,14 +3,14 @@ import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { pgTable, serial, text } from "drizzle-orm/pg-core";
 import {
-  drizzleTableStorage,
   trackAction,
   withDrizzleAudit,
   withDrizzleAuditContext,
   type AuditStorage,
 } from "drizzle-audit";
 import { pgAuditTable } from "drizzle-audit/pg";
-import { describe, expect, it } from "vitest";
+import { drizzleTableStorage } from "drizzle-audit/storage/drizzle";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   createDrizzleAuditStorage,
   defaultDrizzleAuditAction,
@@ -30,8 +30,12 @@ const users = pgTable("users", {
 });
 const auditLog = pgAuditTable();
 
+// One PGlite per file (its WASM boot is the slow part); tables are recreated per test.
+let pg: PGlite | null = null;
 async function makeDb() {
-  const db = drizzle(new PGlite());
+  pg ??= new PGlite();
+  const db = drizzle(pg);
+  await db.execute(sql`DROP TABLE IF EXISTS users, audit_log`);
   await db.execute(sql`CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)`);
   await db.execute(sql`
     CREATE TABLE audit_log (
@@ -41,6 +45,9 @@ async function makeDb() {
     )`);
   return db;
 }
+afterAll(async () => {
+  await pg?.close();
+});
 
 const makeCore = () => createAuditCore({ storage: createMemoryStorage(), selfAudit: false });
 
@@ -58,7 +65,7 @@ const entry = (over: Partial<DrizzleAuditEntry> = {}): DrizzleAuditEntry => ({
   ...over,
 });
 
-describe("createDrizzleAuditStorage with real drizzle-audit", () => {
+describe("createDrizzleAuditStorage with real drizzle-audit", { timeout: 60_000 }, () => {
   it("records insert / update / delete as chained audit events", async () => {
     const core = makeCore();
     const storage = createDrizzleAuditStorage(core, {
@@ -226,7 +233,7 @@ describe("mapping", () => {
   });
 });
 
-describe("importDrizzleAuditEntries", () => {
+describe("importDrizzleAuditEntries", { timeout: 60_000 }, () => {
   it("imports drizzleTableStorage rows in timestamp order, idempotently", async () => {
     const raw = await makeDb();
     const db = withDrizzleAudit(raw, {
