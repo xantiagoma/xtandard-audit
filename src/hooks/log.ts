@@ -16,40 +16,21 @@
  * @module
  */
 
-import type { AfterEvent, BeforeEvent, AuditHooks } from "./contract.ts";
+import * as kit from "@xtandard/kit/hooks/log";
+import type { AfterEvent, AuditHooks, BeforeEvent } from "./contract.ts";
 
-/** Options for {@link createLogHook}. */
-export interface LogHookOptions {
-  /** Sink for each formatted line. Default: `console.log`. */
-  log?: (line: string) => void;
-  /** Also log `before` events (default `false` — `after` only). */
-  includeBefore?: boolean;
-  /**
-   * Format a line for an event. Default: a compact
-   * `[@xtandard/audit] <phase> <type>` prefix + JSON payload.
-   */
-  format?: (phase: "before" | "after", event: BeforeEvent | AfterEvent) => string;
-}
-
-const defaultFormat = (phase: "before" | "after", event: BeforeEvent | AfterEvent): string =>
-  `[@xtandard/audit] ${phase} ${event.type} ${JSON.stringify(event)}`;
+/**
+ * Options for {@link createLogHook}: `log` (default `console.log`),
+ * `includeBefore` (default `false` — `after` only), `json` (one JSON object
+ * per line), `describe` (an extra text-format field) and `format` (replaces
+ * the whole line; default `[@xtandard/audit] <phase> <type> <json>`).
+ */
+export type LogHookOptions = kit.LogHookOptions<BeforeEvent, AfterEvent>;
 
 /**
  * Build a hook that logs each mutation event. Never throws from `before`, so it
  * never denies a mutation — it is a pure observer.
  */
 export function createLogHook(options: LogHookOptions = {}): AuditHooks {
-  const log = options.log ?? ((line: string) => console.log(line));
-  const format = options.format ?? defaultFormat;
-  const hook: AuditHooks = {
-    after(event) {
-      log(format("after", event));
-    },
-  };
-  if (options.includeBefore) {
-    hook.before = (event) => {
-      log(format("before", event));
-    };
-  }
-  return hook;
+  return kit.createLogHook<BeforeEvent, AfterEvent>({ source: "@xtandard/audit", ...options });
 }

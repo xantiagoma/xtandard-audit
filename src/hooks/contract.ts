@@ -20,6 +20,12 @@
  * @module
  */
 
+import {
+  createHookErrorReporter,
+  type HookErrorReporter as KitHookErrorReporter,
+  type Hooks,
+  type HooksInput,
+} from "@xtandard/kit/hooks";
 import type {
   ActionDefinition,
   AuditCheckpoint,
@@ -97,98 +103,23 @@ export type AfterEvent =
 export type BeforeEventType = BeforeEvent["type"];
 export type AfterEventType = AfterEvent["type"];
 
-/**
- * Thrown from a {@link AuditHooks.before} handler to **deny** a mutation with
- * a clean HTTP status (default `403`). Any thrown error denies the mutation,
- * but a plain `Error` maps to `500` at the API layer (treated as an unexpected
- * bug); throw this to signal a deliberate policy rejection (`403`, or a custom
- * `status` such as `409`/`422`).
- *
- * @example
- * ```ts
- * before(event) {
- *   if (event.type === "event.record" && overQuota(event.tenant)) {
- *     throw new HookDeniedError("Monthly audit quota exceeded.", { status: 429 });
- *   }
- * }
- * ```
- */
-export class HookDeniedError extends Error {
-  /** HTTP status the API layer should respond with. Default `403`. */
-  readonly status: number;
-  constructor(message: string, options?: { status?: number; cause?: unknown }) {
-    super(message, options?.cause !== undefined ? { cause: options.cause } : undefined);
-    this.name = "HookDeniedError";
-    this.status = options?.status ?? 403;
-  }
-}
+export { HookDeniedError, normalizeHooks, runAfter, runBefore } from "@xtandard/kit/hooks";
 
 /**
- * A control-plane hook. Implement `before`, `after`, or both. Pass one — or an
- * array — to {@link ../core.createAuditCore} via `hooks`.
+ * A control-plane hook. Implement `before` (runs before a mutation commits;
+ * **throw to deny**, e.g. a `HookDeniedError` with a clean HTTP status),
+ * `after` (side effects once it committed; errors are isolated and reported via
+ * `onHookError`), or both. Pass one — or an array — to
+ * {@link ../core.createAuditCore} via `hooks`.
  */
-export interface AuditHooks {
-  /**
-   * Runs before a mutation commits. **Throw to deny** (the error propagates to
-   * the caller; its message is the reason). Return/resolve to allow. Must not
-   * mutate the event payload.
-   */
-  before?(event: BeforeEvent): void | Promise<void>;
-  /**
-   * Runs after a mutation commits. For side effects only. Errors are isolated
-   * and reported via `onHookError` — they never fail the (already committed)
-   * operation.
-   */
-  after?(event: AfterEvent): void | Promise<void>;
-}
+export type AuditHooks = Hooks<BeforeEvent, AfterEvent>;
 
 /** Accepts a single hook, an array, or nothing. */
-export type AuditHooksInput = AuditHooks | readonly AuditHooks[] | undefined;
+export type AuditHooksInput = HooksInput<BeforeEvent, AfterEvent>;
 
 /** Reports an error thrown by an `after` hook. */
-export type HookErrorReporter = (error: unknown, event: AfterEvent) => void;
+export type HookErrorReporter = KitHookErrorReporter<AfterEvent>;
 
-/** Normalize the `hooks` option into a flat array (empty when unset). */
-export function normalizeHooks(input: AuditHooksInput): AuditHooks[] {
-  if (!input) return [];
-  return Array.isArray(input) ? [...input] : [input as AuditHooks];
-}
-
-/**
- * Run every `before` hook sequentially, in order. The first hook to throw
- * aborts: the error propagates to the caller (denying the mutation) and no
- * later hook runs. A no-op when there are no `before` hooks.
- */
-export async function runBefore(hooks: AuditHooks[], event: BeforeEvent): Promise<void> {
-  for (const hook of hooks) {
-    if (hook.before) await hook.before(event);
-  }
-}
-
-/**
- * Run every `after` hook, isolating failures. The mutation has already
- * committed, so a throwing hook must not fail the operation — its error is
- * routed to `onError` and swallowed. Remaining hooks still run.
- */
-export async function runAfter(
-  hooks: AuditHooks[],
-  event: AfterEvent,
-  onError: HookErrorReporter,
-): Promise<void> {
-  await Promise.all(
-    hooks.map(async (hook) => {
-      if (!hook.after) return;
-      try {
-        await hook.after(event);
-      } catch (error) {
-        onError(error, event);
-      }
-    }),
-  );
-}
-
-/** Default `after`-hook error reporter: warn, but never throw. */
-export const defaultHookErrorReporter: HookErrorReporter = (error, event) => {
-  // eslint-disable-next-line no-console
-  console.warn(`[@xtandard/audit] after-hook for "${event.type}" threw:`, error);
-};
+/** Default `after`-hook error reporter: `console.warn` with the `[@xtandard/audit]` prefix. */
+export const defaultHookErrorReporter: HookErrorReporter =
+  createHookErrorReporter("@xtandard/audit");

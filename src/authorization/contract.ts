@@ -9,7 +9,11 @@
  * @module
  */
 
-import type { Principal } from "../auth/contract.ts";
+import {
+  defineActions,
+  type AuthorizationProvider as KitAuthorizationProvider,
+  type AuthorizeInput as KitAuthorizeInput,
+} from "@xtandard/kit/authorization";
 
 /** The full set of authorizable actions. */
 export type AuditAction =
@@ -40,45 +44,45 @@ export type AuditResource =
   | { type: "stream"; name?: string };
 
 /** Input passed to {@link AuthorizationProvider.authorize}. */
-export interface AuthorizeInput {
-  principal: Principal | null;
-  action: AuditAction;
-  resource: AuditResource;
-  request: Request;
-}
+export type AuthorizeInput = KitAuthorizeInput<AuditAction, AuditResource>;
 
 /** Decides whether an action is permitted. */
-export interface AuthorizationProvider {
-  authorize(input: AuthorizeInput): Promise<boolean>;
-}
+export type AuthorizationProvider = KitAuthorizationProvider<AuditAction, AuditResource>;
+
+/** The action constants (`ALL_ACTIONS`, `MUTATING_ACTIONS`, `isMutatingAction`). */
+export const AUDIT_ACTIONS = defineActions<AuditAction>({
+  all: [
+    "tenant:read",
+    "event:read",
+    "event:record",
+    "event:export",
+    "event:erase",
+    "integrity:read",
+    "integrity:checkpoint",
+    "action:read",
+    "action:update",
+    "action:delete",
+    "retention:prune",
+    "stream:read",
+    "stream:retry",
+  ],
+  mutating: [
+    "event:record",
+    "event:erase",
+    "integrity:checkpoint",
+    "action:update",
+    "action:delete",
+    "retention:prune",
+    "stream:retry",
+  ],
+});
 
 /** Every action, in a stable order (the UI and `/config` `allowed` use it). */
-export const ALL_ACTIONS: readonly AuditAction[] = [
-  "tenant:read",
-  "event:read",
-  "event:record",
-  "event:export",
-  "event:erase",
-  "integrity:read",
-  "integrity:checkpoint",
-  "action:read",
-  "action:update",
-  "action:delete",
-  "retention:prune",
-  "stream:read",
-  "stream:retry",
-];
+export const ALL_ACTIONS: readonly AuditAction[] = AUDIT_ACTIONS.ALL_ACTIONS;
 
 /** Actions that mutate state — blocked (`423`) when the panel is readonly. */
-export const MUTATING_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
-  "event:record",
-  "event:erase",
-  "integrity:checkpoint",
-  "action:update",
-  "action:delete",
-  "retention:prune",
-  "stream:retry",
-]);
+export const MUTATING_ACTIONS: ReadonlySet<AuditAction> = AUDIT_ACTIONS.MUTATING_ACTIONS;
 
 /** True if the action mutates state. */
-export const isMutatingAction = (action: AuditAction): boolean => MUTATING_ACTIONS.has(action);
+export const isMutatingAction = (action: AuditAction): boolean =>
+  AUDIT_ACTIONS.isMutatingAction(action);

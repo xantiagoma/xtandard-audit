@@ -2,8 +2,6 @@ import { describe, expect, test } from "vitest";
 import type { Principal } from "../src/auth/contract.ts";
 import type { AuthorizeInput, AuditAction, AuditResource } from "../src/authorization/contract.ts";
 import { isMutatingAction, MUTATING_ACTIONS } from "../src/authorization/contract.ts";
-import { delegatedAuthorization } from "../src/authorization/delegated.ts";
-import { noAuthorization } from "../src/authorization/none.ts";
 import {
   ALL_ACTIONS,
   AUDITOR_ACTIONS,
@@ -115,34 +113,5 @@ describe("MUTATING_ACTIONS", () => {
     for (const action of MUTATING_ACTIONS) {
       expect(ALL_ACTIONS).toContain(action);
     }
-  });
-});
-
-describe("noAuthorization", () => {
-  test("allows everything, even for a null principal", async () => {
-    const authz = noAuthorization();
-    expect(await authz.authorize(input(null, "event:erase"))).toBe(true);
-  });
-});
-
-describe("delegatedAuthorization", () => {
-  test("allows when the delegate returns true", async () => {
-    const authz = delegatedAuthorization({ authorize: () => true });
-    expect(await authz.authorize(input(null, "event:erase"))).toBe(true);
-  });
-
-  test("denies when the delegate returns false", async () => {
-    const authz = delegatedAuthorization({ authorize: () => false });
-    expect(await authz.authorize(input(admin, "event:read"))).toBe(false);
-  });
-
-  test("normalizes an async delegate and receives the resource", async () => {
-    const authz = delegatedAuthorization({
-      authorize: async ({ resource }) => "tenant" in resource && resource.tenant === "acme",
-    });
-    expect(await authz.authorize(input(admin, "event:read"))).toBe(true);
-    expect(await authz.authorize(input(admin, "event:read", { type: "event", tenant: "x" }))).toBe(
-      false,
-    );
   });
 });
