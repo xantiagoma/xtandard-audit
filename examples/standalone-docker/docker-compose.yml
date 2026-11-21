@@ -1,0 +1,56 @@
+# Standalone @xtandard/audit: panel + API + portal + streams + retention in one
+# container, backed by Postgres. Configured entirely through env (the same
+# contract as `xtandard-audit serve` — see docs/DEPLOYMENT.md).
+#
+#   cp .env.example .env        # then fill in AUDIT_SIGNING_KEY (xtandard-audit keygen)
+#   docker compose up
+#   open http://localhost:3080        # admin / changeme
+#
+# Uses the published image; to build from a checkout instead, replace `image:` with:
+#   build:
+#     context: ../..
+#     dockerfile: apps/standalone/Dockerfile
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: audit
+      POSTGRES_PASSWORD: audit
+      POSTGRES_DB: audit
+    volumes:
+      - audit-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audit -d audit"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  audit:
+    image: ghcr.io/xantiagoma/xtandard-audit:latest
+    ports:
+      - "3080:3000"
+    environment:
+      PORT: "3000"
+      TITLE: "Acme Audit Log"
+      STORAGE_DRIVER: postgres
+      DATABASE_URL: postgres://audit:audit@postgres:5432/audit
+      AUTH_MODE: basic
+      AUTH_USERNAME: admin
+      # Replace with a real scrypt hash via AUTH_PASSWORD_HASH (see docs/AUTH.md);
+      # plaintext AUTH_PASSWORD is for evaluation only.
+      AUTH_PASSWORD: changeme
+      AUTH_ROLE: admin
+      # Ed25519 private JWK (one line of `xtandard-audit keygen`): signs checkpoints;
+      # the public key is served at /api/integrity/keys. Unset = no checkpoints.
+      AUDIT_SIGNING_KEY: ${AUDIT_SIGNING_KEY:-}
+      # Enables customer portal tokens (mint them in your app with createPortalToken).
+      PORTAL_SECRET: ${PORTAL_SECRET:-change-me-to-a-long-random-string}
+      RETENTION_MAX_AGE: 365d
+      # A SIEM stream, delivering only new events (uncomment and point it somewhere real):
+      # AUDIT_STREAMS: '[{"name":"siem","sink":"http","options":{"url":"https://siem.example/ingest"}}]'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  audit-pg:

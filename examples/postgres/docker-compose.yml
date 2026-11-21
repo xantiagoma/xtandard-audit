@@ -1,0 +1,24 @@
+# Postgres for the postgres example.
+#
+#   docker compose up -d        # start postgres in the background
+#   bun install
+#   bun run db:push             # drizzle-kit creates the app + audit tables
+#   bun run start
+#   docker compose down -v      # stop and wipe data
+#
+# Host port 54329 (not 5432) so it does not fight a local Postgres. Matches the
+# example's default DATABASE_URL=postgres://audit:audit@localhost:54329/audit
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "54329:5432"
+    environment:
+      POSTGRES_USER: audit
+      POSTGRES_PASSWORD: audit
+      POSTGRES_DB: audit
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audit -d audit"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
