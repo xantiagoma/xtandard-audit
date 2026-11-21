@@ -1,0 +1,69 @@
+/* docs/BRAND.md's palette as Starlight's colour properties: lime on ink, like the rest of the
+   xtandard control-plane family, with audit's cool neutral greys (the icon surface's hue).
+   Starlight sets link text in --sl-color-accent-high on dark and in --sl-color-accent on light.
+   Dark: xa-ink (#101113) background, xa-lime (#B4E43A) for links and accents (12.7:1).
+   Light: white background, xa-lime-dark (#4A7A0B) for links (5.2:1, AA) — the dark-surface limes
+   are under 2:1 on white. */
+
+:root {
+  --sl-color-accent-low: #1f2a0b;
+  --sl-color-accent: #7fae14;
+  --sl-color-accent-high: #b4e43a;
+
+  --sl-color-white: #fafafa;
+  --sl-color-gray-1: #e8e9eb;
+  --sl-color-gray-2: #c4c6ca;
+  --sl-color-gray-3: #8b9198;
+  --sl-color-gray-4: #4e5459;
+  --sl-color-gray-5: #2e3034;
+  --sl-color-gray-6: #1c1d20;
+  --sl-color-black: #101113;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #eef7dc;
+  --sl-color-accent: #4a7a0b;
+  --sl-color-accent-high: #355a08;
+
+  --sl-color-white: #101113;
+  --sl-color-gray-1: #1c1d20;
+  --sl-color-gray-2: #34363b;
+  --sl-color-gray-3: #575b61;
+  --sl-color-gray-4: #8b9198;
+  --sl-color-gray-5: #d3d5d9;
+  --sl-color-gray-6: #eeeff1;
+  --sl-color-gray-7: #f6f7f8;
+  --sl-color-black: #ffffff;
+}
+
+/* Mermaid diagrams: centred, never wider than the column, scroll when they must. */
+pre.mermaid,
+.mermaid {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  background: transparent;
+}
+
+/* Wide diagrams scroll sideways on small screens instead of shrinking until their labels are
+   unreadable. */
+.mermaid svg {
+  min-width: min(40rem, 100%);
+}
+@media (max-width: 50rem) {
+  .mermaid svg {
+    min-width: 40rem;
+  }
+}
+
+/* Screenshots in the guides: framed, never wider than the column. */
+.sl-markdown-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+/* The home page's ecosystem table: keep "Docs · GitHub · npm" on one line. */
+.ecosystem-table td:last-child {
+  white-space: nowrap;
+}

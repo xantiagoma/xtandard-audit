@@ -1,6 +1,6 @@
 /**
- * `@xtandard/audit/react` — embed the dashboard as a React component in your
- * own app (advanced mode). Most users mount the bundled SPA via a framework
+ * The admin dashboard and the customer portal as React components, to embed in
+ * your own app (advanced mode). Most users mount the bundled SPA via a framework
  * adapter and never touch React; this is for teams that want the panel inside an
  * existing React shell.
  *
@@ -19,6 +19,8 @@
  *
  * `react` and `react-dom` are peer dependencies in this mode. The components are
  * self-contained otherwise (TanStack Query and styles are bundled).
+ *
+ * Import from `@xtandard/audit/react`.
  *
  * @module react
  */

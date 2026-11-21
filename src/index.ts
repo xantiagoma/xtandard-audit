@@ -1,6 +1,6 @@
 /**
- * `@xtandard/audit` — self-hosted, embeddable, tamper-evident audit-log control
- * plane for B2B SaaS.
+ * The self-hosted, embeddable, tamper-evident audit-log control plane for B2B
+ * SaaS, in one import.
  *
  * The root export: the core and its types (also on `/core` and `/schema`), the
  * buffered recorder, transforms, integrity (hash chain, checkpoints, signers),
