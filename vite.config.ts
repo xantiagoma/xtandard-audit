@@ -49,7 +49,7 @@ export default defineConfig({
   // every release — don't enforce our formatter on it. The docs site's .mdx
   // pages are excluded too: the formatter mangles MDX (JSX + Markdown).
   fmt: {
-    ignorePatterns: ["CHANGELOG.md", "site/**/*.mdx"],
+    ignorePatterns: ["CHANGELOG.md", "site/**/*.mdx", "NOTES-*.md"],
   },
   staged: {
     // Pre-commit only formats (fast, and never errors on lint-ignored paths like
@@ -65,6 +65,11 @@ export default defineConfig({
       "src/verify.ts",
       "src/context.ts",
       "src/entry-storage-memory.ts",
+      "src/entry-storage-file.ts",
+      "src/entry-storage-redis.ts",
+      "src/entry-storage-mongodb.ts",
+      "src/entry-storage-unstorage.ts",
+      "src/entry-storage-cloudflare-kv.ts",
       "src/entry-hooks-log.ts",
     ],
     dts: true,

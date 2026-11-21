@@ -40,3 +40,6 @@ examples/**/node_modules
 examples/**/.webhooks
 examples/receivers/python/.venv
 examples/receivers/python/__pycache__
+
+# worker notes (not committed)
+NOTES-*.md
