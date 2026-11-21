@@ -151,3 +151,38 @@ export {
   type ValidationIssue,
   type ValidationResult,
 } from "./validation.ts";
+
+// Auth & authorization contracts (implement your own; providers live behind
+// the auth/* and authorization/* subpath exports)
+export type { AuthProvider, Principal } from "./auth/contract.ts";
+export type {
+  AuthorizationProvider,
+  AuthorizeInput,
+  AuditAction,
+  AuditResource,
+} from "./authorization/contract.ts";
+export { ALL_ACTIONS, isMutatingAction, MUTATING_ACTIONS } from "./authorization/contract.ts";
+
+// Portal tokens (mint server-side, verify in the panel handler)
+export {
+  createPortalToken,
+  DEFAULT_PORTAL_ACTIONS,
+  intersectActions,
+  PORTAL_TOKEN_PREFIX,
+  portalCanSee,
+  PortalTokenError,
+  scopeQueryToPortal,
+  verifyPortalToken,
+  type PortalFilter,
+  type PortalGrant,
+  type PortalTokenOptions,
+  type ScopedQuery,
+} from "./portal.ts";
+
+// Server handler (the panel every framework adapter mounts)
+export { createFetchHandler } from "./server/create-fetch-handler.ts";
+export type { AuditPanelOptions, CreateFetchHandlerResult } from "./server/create-fetch-handler.ts";
+export type { AuditCorsOptions } from "./server/cors.ts";
+export type { AuditPortalOptions, PanelConfig } from "./server/routes.ts";
+export { buildOpenApiDocument } from "./server/openapi.ts";
+export type { OpenApiOptions } from "./server/openapi.ts";
