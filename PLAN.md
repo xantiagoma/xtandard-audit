@@ -106,6 +106,8 @@ site/                   Starlight docs site
 
 ## Phases
 
+Status 2026-11-21: phases 1–7 done (see WORKLOG.md); waiting on the first npm publish by the owner.
+
 1. **Research gate** — `docs/research/landscape.md`, verdict to t1r. ✅ when committed.
 2. **Design** — this file + ADRs 0001–0013, report to t1r.
 3. **Scaffold** — repo tooling copied from webhooks (package.json scripts, vite-plus, oxlint/oxfmt,
