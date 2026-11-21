@@ -50,16 +50,16 @@ sees the entry — and the core's `transforms` for the final event.
 
 ### Mapping
 
-| Event field  | Default                                                                                                           | Override                |
-| ------------ | ----------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `tenant`     | the `tenant` option (a key or `(entry) => key`); `null`/`undefined` → the ambient audit context's tenant          | `tenant` (required)     |
-| `action`     | `db.<table>.<insert\|update\|delete>`, lower-cased (unsupported characters → `_`); custom actions keep their name | `action: (entry) => …`  |
-| `actor`      | `{ id: userId, type: "user" }`, else the ambient context's actor, else `{ id: "system", type: "system" }`         | `actor: (entry) => …`   |
-| `targets`    | `[{ type: tableName, id: rowId }]` (none without both)                                                            | `targets: (entry) => …` |
-| `occurredAt` | the entry's `timestamp`                                                                                           | —                       |
-| `context`    | `ip`, `userAgent`, `requestId` from `entry.metadata` (string values)                                              | —                       |
-| `metadata`   | `{ entryId, changes, oldData, newData, extra? }` — `extra` = the rest of `entry.metadata`                         | —                       |
-| `id`         | deterministic: the entry timestamp (48 bits) + 80 bits of SHA-256(entry id) — a valid, time-sortable `evt_` id    | —                       |
+| Event field  | Default                                                                                                                                                                                          | Override                |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| `tenant`     | the `tenant` option (a key or `(entry) => key`), else `entry.tenantId`, else `entry.metadata.tenantId`, else the ambient audit context's tenant                                                  | `tenant` (optional)     |
+| `action`     | `db.<table>.<insert\|update\|delete>`, lower-cased (unsupported characters → `_`); custom actions keep their name                                                                                | `action: (entry) => …`  |
+| `actor`      | `{ id: userId, type: "user" }`, else the ambient context's actor, else `{ id: "system", type: "system" }`                                                                                        | `actor: (entry) => …`   |
+| `targets`    | `[{ type: tableName, id: rowId }]` (none without both)                                                                                                                                           | `targets: (entry) => …` |
+| `occurredAt` | the entry's `timestamp`                                                                                                                                                                          | —                       |
+| `context`    | `ip`, `userAgent`, `requestId` from `entry.metadata` (string values)                                                                                                                             | —                       |
+| `metadata`   | `{ changes, oldData, newData, extra? }` — `extra` = the rest of `entry.metadata`                                                                                                                 | —                       |
+| `id`         | deterministic: the entry timestamp (48 bits) + 80 bits of SHA-256 over the entry's content (table, action, row id, user, changes) — not `entry.id`, which `drizzleTableStorage` does not persist | —                       |
 
 `include: (entry) => boolean` forwards only matching entries. Values are made JSON-safe (Dates →
 ISO strings, bigints → strings, `undefined` dropped).
@@ -87,8 +87,10 @@ const storage = createDrizzleAuditStorage(audit, {
 
 ### Tenancy
 
-drizzle-audit has no first-class tenant. Put it in the context metadata
-(`withDrizzleAuditContext({ userId, metadata: { tenantId } }, …)`) and read it in `tenant`, or run
+drizzle-audit releases after 0.1.13 carry a first-class `tenantId` on the context and the entry; the
+bridge uses it by default. On 0.1.13, put the tenant in the context metadata
+(`withDrizzleAuditContext({ userId, metadata: { tenantId } }, …)`) — the bridge reads
+`metadata.tenantId` as a fallback — or run
 the request inside an `@xtandard/audit` context (`auditContext` middleware / `runWithAuditContext`)
 and let the bridge fall back to its tenant and actor.
 
@@ -113,7 +115,10 @@ const events = await importDrizzleAuditEntries(audit, rows, {
   timestamp; `recordedAt` is the import time (the chain records when the log accepted them).
 - Same mapping options as the bridge (`tenant`, `action`, `actor`, `targets`, `include`).
 - **Idempotent**: re-running an import (after a crash, or with overlapping pages) skips rows
-  already imported, thanks to the deterministic ids — as long as the mapping is unchanged.
+  already imported, thanks to the deterministic, content-derived ids — as long as the mapping is unchanged
+  and the database keeps millisecond timestamps. A change forwarded live and later imported from the table
+  maps to the same event. Newer drizzle-audit exports `toAuditEntry(row)` to normalize stored rows from any
+  driver (Date timestamps, JSON-as-text, snake_case) before importing.
 - Import into a fresh tenant (or before live events) to keep `seq` order equal to time order;
   importing history after newer events works, but those rows chain after them.
 - `timestamp` may be a `Date`, an ISO string or epoch millis (whatever your driver returns).
