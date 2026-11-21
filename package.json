@@ -273,7 +273,9 @@
     "prepare": "husky || true",
     "docs:dev": "cd site && bun install && bun run dev",
     "docs:build": "cd site && bun install && bun run build",
-    "docs:preview": "cd site && bun run preview"
+    "docs:preview": "cd site && bun run preview",
+    "brand:assets": "sh scripts/brand-assets.sh",
+    "brand:check": "sh scripts/brand-assets.sh --check"
   },
   "dependencies": {
     "valibot": "^1.0.0",
