@@ -86,6 +86,18 @@ export {
   type NormalizedQuery,
   type QueryPosition,
 } from "./query.ts";
+export {
+  callbackSink,
+  createStreamRunner,
+  type AuditSink,
+  type StreamBatch,
+  type StreamCursor,
+  type StreamDefinition,
+  type StreamItem,
+  type StreamRunner,
+  type StreamRunnerOptions,
+  type StreamStatus,
+} from "./streams.ts";
 export { resolveEventLog, createKvEventLog, type EventLog } from "./event-log.ts";
 export { canonicalStringify } from "./canonical.ts";
 export { newId, idPattern, idTime, type IdPrefix } from "./id.ts";
