@@ -26,8 +26,8 @@ is a read session, not integration setup).
 - **Force-scoped and closed**: only the token's tenant, only actions in `portal.allow` (default
   `DEFAULT_PORTAL_ACTIONS`: `event:read`, `event:export`, `action:read`, `integrity:read`). The host's
   authorization provider is **not** consulted for portal principals — portal scoping wins.
-- ★ **Optional `filter`** (`actions`, `actionPrefixes`, `excludeActions`, `actorId`, `targetType`,
-  `targetId`) is AND-ed into every query, export and count server-side; the client cannot widen it.
+- ★ **Optional `filter`** (`actions` — exact names or `invoice.*` families —, `excludeActions`,
+  `actorId`, `targetType`, `targetId`) is AND-ed into every query, export and count server-side; the client cannot widen it.
 - Portal exports are recorded into the tenant's own log as `audit_log.exported` (self-audit), with
   the portal principal as actor.
 
@@ -38,3 +38,11 @@ Same SPA, reduced chrome (ADR 0003); `<AuditPortal apiBaseUrl token />` in `@xta
 - Two lines for hosts: mint a token in a route handler, render `<AuditPortal token={…} />`.
 - Tokens are bearer credentials; revocation before expiry = rotate the portal secret.
 - Integrity verification is available to portal principals, so customers can check their own log.
+
+## Addendum (implementation)
+
+- Client parameters can only **narrow** the token's view: out-of-view parameters yield an empty page
+  (not 403); a hidden event is 404; filtered tokens get 403 on `format=bundle` (a bundle is the whole
+  chain, which a filtered view must not reveal).
+- Portal principals never get stream or catalog-write access, even if `portal.allow` is widened, and
+  resources without a tenant (overview, tenant list, global prune) are denied.
