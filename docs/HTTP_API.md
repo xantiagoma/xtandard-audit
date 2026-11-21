@@ -84,3 +84,20 @@ interface Overview {
 
 Mutating actions (`event:record`, `event:erase`, `integrity:checkpoint`, `retention:prune`,
 `action:update`, `action:delete`, `stream:retry`) answer `423` when the panel is readonly.
+
+Notes on individual routes:
+
+- `POST /api/tenants/:tenant/events` — the tenant comes from the path (a body `tenant` that differs
+  is a `422`); a missing `actor` defaults to the authenticated principal (`type: "api"`).
+- `GET /api/tenants/:tenant/export` — `format` defaults to `csv`; `cursor`/`limit` are ignored
+  (exports stream every match, up to 100 000 events). The filename is
+  `<tenant>-audit-<YYYY-MM-DD>.<csv|json|jsonl|bundle.jsonl>` (tenant characters outside
+  `[A-Za-z0-9._-]` become `_`). The export notes itself (`audit_log.exported`) before streaming, so
+  the self-audit event of this very export is part of it.
+- Portal principals: a client parameter outside the token's view filter yields an empty result
+  (never a `403`, never a wider view); an event outside it reads as `404`; `format=bundle` is a
+  `403` for filtered tokens (a bundle is the whole chain); `GET /api/tenants/:tenant` omits `count`
+  for filtered tokens.
+- Error bodies carry a machine-readable `code` where one applies: `READONLY`, `HOOK_DENIED`,
+  `PORTAL_TOKEN`, `BAD_QUERY`, `BAD_JSON`, `CONFLICT`, `SIGNER_REQUIRED`, `VALIDATION`; `403`
+  authorization denials carry the denied `action`.
