@@ -21,7 +21,7 @@
  * convention), else the ambient audit context's tenant.
  *
  * Each event id is derived from the entry's **content** (timestamp, table,
- * action, row id, user, changes) — not from `entry.id`, which
+ * action, row id, user, changes, old/new data, metadata) — not from `entry.id`, which
  * `drizzleTableStorage` does not persist (stored rows get a fresh id). So the
  * same change forwarded live and later imported from the table maps to the same
  * event, and re-writing or re-importing is a no-op, as long as the database
@@ -158,6 +158,9 @@ export async function drizzleAuditEventId(entry: DrizzleAuditEntry): Promise<str
           entry.rowId === null ? null : String(entry.rowId),
           entry.userId,
           toJson(entry.changes),
+          toJson(entry.oldData),
+          toJson(entry.newData),
+          toJson(entry.metadata),
         ])}`,
       ),
     ),

@@ -200,6 +200,8 @@ describe("mapping", () => {
     // Content-derived: drizzleTableStorage does not keep entry.id, so it is not part of the id.
     expect(await drizzleAuditEventId(entry({ id: "other" }))).toBe(a);
     expect(await drizzleAuditEventId(entry({ rowId: "other" }))).not.toBe(a);
+    // trackAction emits same-millisecond entries that differ only in metadata.
+    expect(await drizzleAuditEventId(entry({ metadata: { rows: 3 } }))).not.toBe(a);
     const later = await drizzleAuditEventId(entry({ timestamp: "2026-01-02T03:04:06.000Z" }));
     expect(later > a).toBe(true);
     await expect(drizzleAuditEventId(entry({ timestamp: "nope" }))).rejects.toThrow(
