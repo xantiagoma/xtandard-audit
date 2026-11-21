@@ -14,19 +14,23 @@ a colour, the tagline or a lockup's layout is a code change, not a hand edit of 
 
 ## Files
 
-| File                                                                                      | What it is                                                                                                              | Use it for                                                                                                           |
-| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `logo.svg`                                                                                | App icon: the symbol and grey `<` `>` brackets on a near-black rounded square with faint orbit lines                    | The master for every square raster                                                                                   |
-| `logo.png` (1024), `logo-256.png`, `logo-128.png`                                         | App icon rasters                                                                                                        | The npm README (`logo-128.png`, or `logo-256.png` at `width="128"` for 2× screens), avatars, the GitHub repo picture |
-| `symbol.svg`, `symbol.png` (256 high)                                                     | The symbol alone, transparent, lime for dark surfaces                                                                   | Inline UI (the admin SPA header), places that draw their own surface                                                 |
-| `lockup-horizontal-dark.svg` / `.png` (2×)                                                | Symbol + wordmark, `xtandard-` in near-white                                                                            | Headers on dark backgrounds: the README in GitHub dark mode, the docs site in dark mode                              |
-| `lockup-horizontal-light.svg` / `.png` (2×)                                               | Symbol + wordmark, `xtandard-` in ink, deeper lime                                                                      | Headers on light backgrounds: the README in GitHub light mode, npm, the docs site                                    |
-| `lockup-stacked-{dark,light}.svg` / `.png` (2×)                                           | Symbol left, `xtandard-` over `audit`                                                                                   | Square-ish slots: slides, stickers, sidebars                                                                         |
-| `monochrome-white.svg`, `monochrome-black.svg`                                            | One-colour horizontal lockup                                                                                            | Photos and busy backgrounds (white); print and engraving (black)                                                     |
-| `favicon.svg`, `favicon.ico` (16/32/48), `favicon.png` (32), `apple-touch-icon.png` (180) | Favicon set: the symbol, larger, on the flat ink square, without orbits, brackets or shadow (they do not survive 16 px) | Browser tabs: the docs site and the admin UI/portal                                                                  |
-| `social.svg`, `social.png` (1280×640)                                                     | Social card: icon, wordmark, tagline, `bun add` line                                                                    | The GitHub social preview (Settings → General → Social preview, uploaded by hand), `og:image` of the docs site       |
+**Everything people see as a logo is an SVG.** Rasters exist only where a format requires one and
+nobody sees them as an icon on a page: `social.png` (`og:image` must be a raster), and `favicon.ico` /
+`apple-touch-icon.png` as `<head>` fallbacks. There are no PNG logo or lockup variants.
 
-Regenerate the masters, then rebuild every raster from them:
+| File                                                                  | What it is                                                                                                              | Use it for                                                                                                            |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `logo.svg`                                                            | App icon: the symbol and grey `<` `>` brackets on a near-black rounded square with faint orbit lines                    | Square avatar slots (the GitHub repo/org picture, registries that take an SVG); the master for `apple-touch-icon.png` |
+| `symbol.svg`                                                          | The symbol alone, transparent, lime for dark surfaces                                                                   | Inline UI on dark surfaces (the admin SPA header in dark theme)                                                       |
+| `symbol-light.svg`                                                    | The symbol alone, transparent, the light lockup's deeper lime                                                           | Inline UI on light surfaces (the admin SPA header in light theme)                                                     |
+| `lockup-horizontal-dark.svg`                                          | Symbol + wordmark, `xtandard-` in near-white                                                                            | Headers on dark backgrounds: the README in GitHub dark mode, the docs site in dark mode                               |
+| `lockup-horizontal-light.svg`                                         | Symbol + wordmark, `xtandard-` in ink, deeper lime                                                                      | Headers on light backgrounds: the README in GitHub light mode, npm, the docs site                                     |
+| `lockup-stacked-{dark,light}.svg`                                     | Symbol left, `xtandard-` over `audit`                                                                                   | Square-ish slots: the docs site hero, slides, stickers                                                                |
+| `monochrome-white.svg`, `monochrome-black.svg`                        | One-colour horizontal lockup                                                                                            | Photos and busy backgrounds (white); print and engraving (black)                                                      |
+| `favicon.svg`, `favicon.ico` (16/32/48), `apple-touch-icon.png` (180) | Favicon set: the symbol, larger, on the flat ink square, without orbits, brackets or shadow (they do not survive 16 px) | Browser tabs: the docs site and the admin UI/portal. The ICO and the touch icon are `<head>` fallbacks only           |
+| `social.svg`, `social.png` (1280×640)                                 | Social card: icon, wordmark, tagline, `bun add` line                                                                    | The GitHub social preview (Settings → General → Social preview, uploaded by hand), `og:image` of the docs site        |
+
+Regenerate the masters, then rebuild the three rasters from them:
 
 ```sh
 bun run brand:masters  # uv run scripts/brand/build.py: writes every SVG in docs/assets/
@@ -34,7 +38,7 @@ bun run brand:assets   # sh scripts/brand-assets.sh: rsvg-convert (librsvg) + ma
 bun run brand:check    # rasters present, src/ui/brand copies equal to docs/assets
 ```
 
-`brand-assets.sh` also copies `favicon.svg` and `symbol.svg` into `src/ui/brand/`, which the admin
+`brand-assets.sh` also copies `favicon.svg`, `symbol.svg` and `symbol-light.svg` into `src/ui/brand/`, which the admin
 SPA bundles (served from its own origin, so no cross-origin fetch at runtime).
 
 ### The generator
@@ -65,12 +69,12 @@ deterministic, so rerunning it on an unchanged checkout leaves `git status` clea
       <source
         media="(prefers-color-scheme: dark)"
         srcset="
-          https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/lockup-horizontal-dark.png
+          https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/lockup-horizontal-dark.svg
         "
       />
       <img
         alt="xtandard-audit"
-        src="https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/lockup-horizontal-light.png"
+        src="https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/lockup-horizontal-light.svg"
         width="420"
       />
     </picture>
@@ -83,9 +87,9 @@ deterministic, so rerunning it on an unchanged checkout leaves `git status` clea
   (or `symbol.svg` beside the text title), `favicon: favicon.svg`, plus `head` entries for
   `favicon.ico` (with `sizes="16x16 32x32 48x48"`), `apple-touch-icon.png` and
   `og:image` = `social.png` by absolute URL.
-- **Admin UI / portal**: `src/ui/brand/favicon.svg` as the tab icon and `src/ui/brand/symbol.svg` in
-  the header. Both use the dark-surface lime; on a light theme put the symbol on an ink chip or
-  use the light lockup's colours (below).
+- **Admin UI / portal / React embeds**: `src/ui/brand/favicon.svg` as the tab icon, and the bare
+  symbol in the header — `symbol-light.svg` in the light theme, `symbol.svg` in the dark one. No tile
+  behind it.
 - **Favicon order** in any HTML head: `favicon.ico` (with `sizes`) first, then `favicon.svg`
   (`type="image/svg+xml"`, which modern browsers prefer), then `apple-touch-icon.png`.
 - **Social preview**: `social.png`.
