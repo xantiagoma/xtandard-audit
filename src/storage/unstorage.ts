@@ -10,10 +10,15 @@
  * This adapter converts those back to `/` so callers always see the keys they
  * wrote.
  *
+ * unstorage's key normalization is lossy (it cuts at `?`, turns `\` and `/`
+ * into `:`, and collapses repeated `:`), so the adapter escapes `%`, `?`, `\`
+ * and `:` inside segments before handing keys over and reverses it on the way
+ * back: every key round-trips exactly.
+ *
  * KV only: events go through the core's generic KV event log (ADR 0005), and
  * unstorage has no compare-and-swap, so the core assumes a **single writer per
- * tenant**. Key segments the core escapes with `encodeURIComponent` contain
- * `%`, never `:`, so the `:` ↔ `/` conversion is lossless for audit keys.
+ * tenant**. Note that filesystem-backed unstorage drivers inherit their
+ * filesystem's case sensitivity; prefer `storage/file`, which encodes case.
  *
  * @module
  */
@@ -27,8 +32,15 @@ export interface UnstorageStorageOptions {
   storage: Storage;
 }
 
-/** Convert an unstorage `:`-separated key back to the `/`-separated form. */
-const fromUnstorageKey = (key: string): string => key.replace(/:/g, "/");
+const ESCAPES: Record<string, string> = { "%": "%25", "?": "%3F", "\\": "%5C", ":": "%3A" };
+const UNESCAPES: Record<string, string> = { "%25": "%", "%3F": "?", "%5C": "\\", "%3A": ":" };
+
+/** Escape the characters unstorage would normalize away (segments keep their `/`). */
+const toUnstorageKey = (key: string): string => key.replace(/[%?\\:]/g, (ch) => ESCAPES[ch]!);
+
+/** Convert an unstorage `:`-separated key back to the original `/`-separated key. */
+const fromUnstorageKey = (key: string): string =>
+  key.replace(/:/g, "/").replace(/%(25|3F|5C|3A)/g, (m) => UNESCAPES[m]!);
 
 /**
  * Create a {@link AuditStorage} backed by an unstorage `Storage` instance.
@@ -51,23 +63,23 @@ export function createUnstorageStorage(options: UnstorageStorageOptions): AuditS
 
   return {
     async getItem<T>(key: string): Promise<T | null> {
-      const value = await storage.getItem<T>(key);
+      const value = await storage.getItem<T>(toUnstorageKey(key));
       return value === undefined ? null : value;
     },
 
     async setItem<T>(key: string, value: T): Promise<void> {
       // unstorage's setItem rejects `undefined`; the contract never stores it.
-      await storage.setItem(key, value as NonNullable<T>);
+      await storage.setItem(toUnstorageKey(key), value as NonNullable<T>);
     },
 
     async removeItem(key: string): Promise<void> {
-      await storage.removeItem(key);
+      await storage.removeItem(toUnstorageKey(key));
     },
 
     async getKeys(prefix: string): Promise<string[]> {
       // unstorage's getKeys takes a base and returns matching keys with `:`
       // separators; convert them back so callers get their original `/` keys.
-      const keys = await storage.getKeys(prefix);
+      const keys = await storage.getKeys(toUnstorageKey(prefix));
       return keys.map(fromUnstorageKey).filter((key) => key.startsWith(prefix));
     },
   } satisfies AuditStorage;

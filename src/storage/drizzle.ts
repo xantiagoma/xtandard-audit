@@ -247,7 +247,8 @@ export function createDrizzleStorage(
         .select({ key: table.key })
         .from(table)
         .where(sql`${table.key} like ${pattern} escape '!'`)) as Array<{ key: unknown }>;
-      return rows.map((row) => String(row.key));
+      // SQLite LIKE folds case and MySQL collations may too: keep only exact prefix matches.
+      return rows.map((row) => String(row.key)).filter((key) => key.startsWith(prefix));
     },
   };
 

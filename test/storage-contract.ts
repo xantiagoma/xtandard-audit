@@ -136,6 +136,40 @@ export function runStorageContractTests(
       expect(await storage.getKeys("aud/t/none/")).toEqual([]);
     });
 
+    test("keys are case- and accent-exact", { timeout: t }, async () => {
+      const storage = await makeStorage();
+      // NFC "é" vs NFD "e\u0301" vs plain "e"; upper vs lower case.
+      const keys = [
+        "aud/t/Acme/k",
+        "aud/t/acme/k",
+        "aud/t/ACME/k",
+        "aud/t/caf\u00e9/k",
+        "aud/t/cafe\u0301/k",
+        "aud/t/cafe/k",
+      ];
+      for (const [i, key] of keys.entries()) await storage.setItem(key, i);
+      for (const [i, key] of keys.entries()) expect(await storage.getItem(key)).toBe(i);
+      expect(await storage.getKeys("aud/t/acme/")).toEqual(["aud/t/acme/k"]);
+      expect(await storage.getKeys("aud/t/Acme/")).toEqual(["aud/t/Acme/k"]);
+      expect(await storage.getKeys("aud/t/cafe/")).toEqual(["aud/t/cafe/k"]);
+      expect(await storage.getKeys("aud/t/caf\u00e9/")).toEqual(["aud/t/caf\u00e9/k"]);
+      await storage.removeItem("aud/t/Acme/k");
+      expect(await storage.getItem("aud/t/acme/k")).toBe(1);
+    });
+
+    test("prefixes are literal: % _ ! * [ ] ? \\ are not wildcards", { timeout: t }, async () => {
+      const storage = await makeStorage();
+      const specials = ["%", "_", "!", "*", "[", "]", "?", "\\"];
+      for (const ch of specials) {
+        await storage.setItem(`aud/w/a${ch}b/k`, ch);
+        await storage.setItem(`aud/w/aXb/k${ch}`, ch);
+      }
+      for (const ch of specials) {
+        expect(await storage.getKeys(`aud/w/a${ch}b/`)).toEqual([`aud/w/a${ch}b/k`]);
+      }
+      expect((await storage.getKeys("aud/w/aXb/")).length).toBe(specials.length);
+    });
+
     test("zero-padded seq keys sort lexicographically = numerically", { timeout: t }, async () => {
       const storage = await makeStorage();
       for (const seq of [10, 2, 100, 1]) await storage.setItem(eventKey("acme", seq), { seq });
@@ -163,6 +197,19 @@ export function runStorageContractTests(
       expect((await audit.head("acme")).seq).toBe(5);
       expect((await audit.verify("acme")).ok).toBe(true);
       expect((await audit.verify("globex")).ok).toBe(true);
+    });
+
+    test("tenants differing only in case are separate chains", { timeout: t }, async () => {
+      const storage = await makeStorage();
+      const audit = createAuditCore({ storage });
+      await audit.record({ tenant: "Acme", action: "x.y", actor: { id: "1" } });
+      await audit.record({ tenant: "acme", action: "x.y", actor: { id: "1" } });
+      await audit.record({ tenant: "acme", action: "x.y", actor: { id: "1" } });
+      expect((await audit.head("Acme")).seq).toBe(1);
+      expect((await audit.head("acme")).seq).toBe(2);
+      expect((await audit.query({ tenant: "Acme" })).items).toHaveLength(1);
+      expect((await audit.verify("acme")).ok).toBe(true);
+      expect((await audit.verify("Acme")).ok).toBe(true);
     });
 
     test("get returns stored events exactly; unknown ids are null", { timeout: t }, async () => {

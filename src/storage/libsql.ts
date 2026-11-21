@@ -173,7 +173,8 @@ export function createLibsqlStorage(options: LibsqlStorageOptions): LibsqlAuditS
         sql: `SELECT key FROM ${table} WHERE key LIKE ? ESCAPE '\\'`,
         args: [`${escapeLike(prefix)}%`],
       });
-      return rows.map((r) => String(r.key));
+      // SQLite LIKE folds ASCII case: keep only exact prefix matches.
+      return rows.map((r) => String(r.key)).filter((key) => key.startsWith(prefix));
     },
 
     ...createSqliteEventLog(exec, table),
