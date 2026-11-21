@@ -23,7 +23,7 @@ async function seeded() {
   });
   await audit.record({ tenant: "acme", action: "user.login", actor: { id: "u_2" } });
   await audit.record({ tenant: "acme", action: "user.login", actor: { id: "u_3" } });
-  await new Promise((r) => setTimeout(r, 20));
+  await audit.settled();
   return { audit, pair };
 }
 

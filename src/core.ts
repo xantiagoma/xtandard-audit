@@ -301,6 +301,11 @@ export interface AuditCore<A extends ActionMap = ActionMap> {
    * register their slowest cursor). Returns an unregister function.
    */
   addRetentionFloor(floor: (tenant: string) => Promise<number | null>): () => void;
+  /**
+   * Resolves once background work started by recording (automatic checkpoints)
+   * has settled. Await it in tests and before shutting down.
+   */
+  settled(): Promise<void>;
 }
 
 const DEFAULT_CHECKPOINTS: CheckpointOptions = { every: 1000, interval: "1h" };
@@ -595,7 +600,7 @@ export function createAuditCore<const A extends ActionMap = ActionMap>(
           console.warn("[@xtandard/audit] onRecord threw:", err);
         }
       }
-      void maybeAutoCheckpoint(tenant);
+      track(maybeAutoCheckpoint(tenant));
     }
     return prepared.map((p) => results.get(p.id)!);
   }
@@ -662,6 +667,11 @@ export function createAuditCore<const A extends ActionMap = ActionMap>(
   const checkpointing = new Set<string>();
 
   const recheck = new Set<string>();
+  const background = new Set<Promise<void>>();
+  function track(work: Promise<void>): void {
+    background.add(work);
+    void work.finally(() => background.delete(work));
+  }
 
   async function maybeAutoCheckpoint(tenant: string): Promise<void> {
     if (!signer || !checkpointOpts) return;
@@ -1160,6 +1170,10 @@ export function createAuditCore<const A extends ActionMap = ActionMap>(
     },
 
     pruneTenant: (tenant, opts = {}) => pruneTenant(tenant, opts.actor ?? null),
+
+    async settled() {
+      while (background.size > 0) await Promise.allSettled([...background]);
+    },
 
     addRetentionFloor(floor) {
       floors.add(floor);

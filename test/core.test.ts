@@ -377,7 +377,7 @@ describe("checkpoints", () => {
     });
     for (let i = 0; i < 4; i++)
       await audit.record({ tenant: "t", action: "x", actor: { id: "u" } });
-    await new Promise((r) => setTimeout(r, 20));
+    await audit.settled();
     const auto = await audit.listCheckpoints("t");
     expect(auto.map((c) => c.seq)).toEqual([2, 4]);
     const manual = await audit.checkpoint("t", { actor: { id: "op" } });
@@ -396,14 +396,14 @@ describe("checkpoints", () => {
       now: c.now,
     });
     await audit.record({ tenant: "t", action: "x", actor: { id: "u" } });
-    await new Promise((r) => setTimeout(r, 10));
+    await audit.settled();
     expect((await audit.listCheckpoints("t")).length).toBe(1); // first: never checkpointed before
     await audit.record({ tenant: "t", action: "x", actor: { id: "u" } });
-    await new Promise((r) => setTimeout(r, 10));
+    await audit.settled();
     expect((await audit.listCheckpoints("t")).length).toBe(1);
     c.set(T0 + 2 * 3_600_000);
     await audit.record({ tenant: "t", action: "x", actor: { id: "u" } });
-    await new Promise((r) => setTimeout(r, 10));
+    await audit.settled();
     expect((await audit.listCheckpoints("t")).map((x) => x.seq)).toEqual([1, 3]);
   });
 });
