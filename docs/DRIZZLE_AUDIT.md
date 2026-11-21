@@ -125,3 +125,10 @@ const events = await importDrizzleAuditEntries(audit, rows, {
 
 Cut over by switching the drizzle-audit storage to the bridge (or to `multiStorage` with both
 during a transition), then import the table up to the cutover point.
+
+## Gotcha: write with `.returning()`
+
+drizzle-audit audits an `insert`/`update`/`delete` **without** `.returning()` fire-and-forget: the
+audit write is not awaited (and has no row id), so `onError: "throw"` cannot fail the statement and a
+query right after may not see the event yet. Use `.returning()` on audited writes when the event must be
+committed together with the change.

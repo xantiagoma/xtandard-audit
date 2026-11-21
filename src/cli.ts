@@ -978,3 +978,8 @@ export async function run(argv: string[]): Promise<number> {
     return 1;
   }
 }
+
+// `bun src/cli.ts <command>` (contributors); the published bin calls `run` itself.
+if ((import.meta as ImportMeta & { main?: boolean }).main) {
+  void run(process.argv.slice(2)).then((code) => process.exit(code));
+}
