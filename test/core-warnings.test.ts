@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { createAuditCore } from "../src/core.ts";
+import type { AuditStorage } from "../src/storage/contract.ts";
 import { createMemoryStorage } from "../src/storage/memory.ts";
 
 it("warns once when the storage cannot protect the chain against concurrent writers", () => {
@@ -12,7 +13,8 @@ it("warns once when the storage cannot protect the chain against concurrent writ
     getKeys: m.getKeys,
   };
   createAuditCore({ storage: createMemoryStorage() }); // native: no warning
-  createAuditCore({ storage: { ...plainKv, compareAndSwap: m.compareAndSwap } }); // CAS: no warning
+  const withCas: AuditStorage = { ...plainKv, compareAndSwap: m.compareAndSwap } as AuditStorage;
+  createAuditCore({ storage: withCas }); // CAS: no warning
   expect(warn).not.toHaveBeenCalled();
   createAuditCore({ storage: plainKv });
   createAuditCore({ storage: plainKv });
