@@ -221,9 +221,11 @@ test("a portal token renders the tenant-scoped portal chrome", async ({ page, re
   expect(token).toMatch(/^audpt_/);
 
   // ?token= is the bundled SPA's portal affordance: the API client sends it as
-  // a Bearer credential; /config then reports portal mode.
+  // a Bearer credential; /config then reports portal mode. The token leaves the
+  // address bar (no bookmarking, sharing or Referer leak).
   await page.goto(`/events?token=${token}`);
   await expect(page.getByText("Portal", { exact: true })).toBeVisible();
+  expect(page.url()).not.toContain("token=");
   await expect(page.getByText("acme", { exact: true }).first()).toBeVisible();
   await expect(page.getByLabel("Tenant")).toHaveCount(0);
   const nav = page.getByRole("navigation", { name: "Main navigation" });
