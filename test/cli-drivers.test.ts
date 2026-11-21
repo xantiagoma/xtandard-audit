@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { buildStorage, CLI_DRIVERS } from "../src/cli.ts";
 
@@ -37,6 +38,16 @@ afterEach(() => {
   }
 });
 
+/** Whether an optional peer is installed (they are not devDependencies). */
+const installed = (pkg: string) => {
+  try {
+    createRequire(import.meta.url).resolve(pkg);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const hasEntry = (driver: string) =>
   existsSync(fileURLToPath(new URL(`../src/entry-storage-${driver}.ts`, import.meta.url)));
 
@@ -48,7 +59,7 @@ const driverEnv = (driver: string, dir: string): Record<string, string> | null =
     case "file":
       return { STORAGE_FILE_DIR: join(dir, "file") };
     case "libsql":
-      return { LIBSQL_URL: `file:${join(dir, "audit.db")}` };
+      return installed("@libsql/client") ? { LIBSQL_URL: `file:${join(dir, "audit.db")}` } : null;
     case "redis":
       return process.env.REDIS_URL ? {} : null;
     case "postgres":
