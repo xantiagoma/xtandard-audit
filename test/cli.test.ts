@@ -42,6 +42,8 @@ const ENV = [
   "AUDIT_SIGNING_KEY",
   "AUDIT_HMAC_SECRET",
   "AUDIT_STREAMS",
+  "AUTH_MODE",
+  "PORT",
 ];
 const saved: Record<string, string | undefined> = {};
 const text = (s: unknown) =>
@@ -402,4 +404,20 @@ describe("verify --bundle", () => {
     expect(verifyExitCode({ ...base, anchor: "unanchored" })).toBe(2);
     expect(verifyExitCode({ ...base, checked: 0, anchor: "none", signedThrough: null })).toBe(0);
   });
+});
+
+describe("serve auth", () => {
+  // A typo must not fall through to `none` and serve an open admin panel: `run`
+  // resolves (a listening server never would) with 1 before anything listens.
+  test.each(["basci", "BASIC", "Basic"])(
+    "serve rejects unknown AUTH_MODE=%s and exits 1 without listening",
+    async (mode) => {
+      process.env.AUTH_MODE = mode;
+      process.env.PORT = "4399";
+      expect(await run(["serve"])).toBe(1);
+      expect(stderr()).toContain(`Unknown AUTH_MODE "${mode}" (expected none or basic)`);
+      expect(stderr()).not.toContain("AUTH_MODE=none");
+      expect(stdout()).not.toContain("listening");
+    },
+  );
 });

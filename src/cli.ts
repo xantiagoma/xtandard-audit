@@ -320,9 +320,12 @@ export async function streamsFromEnv(): Promise<StreamDefinition[]> {
   return out;
 }
 
+/** `AUTH_MODE`, with an empty value meaning the default `none`. */
+const authModeFromEnv = (): string => process.env.AUTH_MODE || "none";
+
 /** Build the auth + authorization providers from env (mirrors the standalone app). */
 async function buildAuth(): Promise<{ auth: AuthProvider; authorization: AuthorizationProvider }> {
-  const mode = env("AUTH_MODE", "none");
+  const mode = authModeFromEnv();
   if (mode === "basic") {
     const [{ basicAuth }, { rolesAuthorization }] = await Promise.all([
       import("./auth/basic.ts"),
@@ -347,6 +350,7 @@ async function buildAuth(): Promise<{ auth: AuthProvider; authorization: Authori
       authorization: rolesAuthorization({}),
     };
   }
+  if (mode !== "none") throw new Error(`Unknown AUTH_MODE "${mode}" (expected none or basic)`);
   const [{ noAuth }, { noAuthorization }] = await Promise.all([
     import("./auth/none.ts"),
     import("./authorization/none.ts"),
@@ -612,7 +616,7 @@ Environment variables
     TITLE                       Navbar wordmark.
     LOGO_URL                    Logo image URL.
     READONLY        1|true      Block all mutating operations.
-    AUTH_MODE       none|basic  Authentication mode (default none).
+    AUTH_MODE       none|basic  Authentication mode (default none; any other value is rejected).
     AUTH_USERNAME   admin       Username for basic auth.
     AUTH_PASSWORD_HASH          scrypt hash (preferred; see docs/AUTH.md).
     AUTH_PASSWORD               Plaintext password (dev only).
@@ -897,16 +901,17 @@ export async function run(argv: string[]): Promise<number> {
         const title = env("TITLE", "@xtandard/audit");
         const logoUrl = env("LOGO_URL");
         const readonly = isTruthy(env("READONLY"));
-        const authMode = env("AUTH_MODE", "none");
+        const authMode = authModeFromEnv();
         const portalSecret = env("PORTAL_SECRET");
         const maintenanceRaw = env("MAINTENANCE_INTERVAL");
 
+        // Auth first: an unknown AUTH_MODE fails before any storage/stream connects.
+        const { auth, authorization } = await buildAuth();
         const { createFetchHandler } = await import("./server/create-fetch-handler.ts");
-        const [storage, signer, streams, { auth, authorization }] = await Promise.all([
+        const [storage, signer, streams] = await Promise.all([
           buildStorage(),
           signerFromEnv(),
           streamsFromEnv(),
-          buildAuth(),
         ]);
 
         if (authMode === "none") {
