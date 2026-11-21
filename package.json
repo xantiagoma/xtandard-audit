@@ -104,6 +104,56 @@
         "default": "./dist/entry-storage-memory.cjs"
       }
     },
+    "./storage/file": {
+      "import": {
+        "types": "./dist/entry-storage-file.d.mts",
+        "default": "./dist/entry-storage-file.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-storage-file.d.cts",
+        "default": "./dist/entry-storage-file.cjs"
+      }
+    },
+    "./storage/redis": {
+      "import": {
+        "types": "./dist/entry-storage-redis.d.mts",
+        "default": "./dist/entry-storage-redis.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-storage-redis.d.cts",
+        "default": "./dist/entry-storage-redis.cjs"
+      }
+    },
+    "./storage/mongodb": {
+      "import": {
+        "types": "./dist/entry-storage-mongodb.d.mts",
+        "default": "./dist/entry-storage-mongodb.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-storage-mongodb.d.cts",
+        "default": "./dist/entry-storage-mongodb.cjs"
+      }
+    },
+    "./storage/unstorage": {
+      "import": {
+        "types": "./dist/entry-storage-unstorage.d.mts",
+        "default": "./dist/entry-storage-unstorage.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-storage-unstorage.d.cts",
+        "default": "./dist/entry-storage-unstorage.cjs"
+      }
+    },
+    "./storage/cloudflare-kv": {
+      "import": {
+        "types": "./dist/entry-storage-cloudflare-kv.d.mts",
+        "default": "./dist/entry-storage-cloudflare-kv.mjs"
+      },
+      "require": {
+        "types": "./dist/entry-storage-cloudflare-kv.d.cts",
+        "default": "./dist/entry-storage-cloudflare-kv.cjs"
+      }
+    },
     "./hooks/log": {
       "import": {
         "types": "./dist/entry-hooks-log.d.mts",
