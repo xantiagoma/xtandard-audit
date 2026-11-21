@@ -105,7 +105,7 @@ describe("createDrizzleAuditStorage with real drizzle-audit", { timeout: 60_000 
       changes: { id: 1, name: "Ada" },
       extra: { tenantId: "acme", plan: "pro" },
     });
-    expect(typeof ins!.metadata.entryId).toBe("string");
+    expect(ins!.metadata).not.toHaveProperty("entryId");
     expect(upd!.metadata).toMatchObject({
       changes: { name: { from: "Ada", to: "Grace" } },
       oldData: { id: 1, name: "Ada" },
@@ -151,7 +151,7 @@ describe("createDrizzleAuditStorage with real drizzle-audit", { timeout: 60_000 
     await storage.flush();
     expect(recorder.pending).toBe(0);
     expect(await core.count("acme")).toBe(1);
-    await storage.write([entry({ id: "e2" })]);
+    await storage.write([entry({ id: "e2", rowId: "2" })]);
     await storage.close();
     expect(await core.count("acme")).toBe(2);
     await recorder.close();
@@ -175,11 +175,31 @@ describe("mapping", () => {
     expect(defaultDrizzleAuditAction(entry({ tableName: null, action: "!!!" }))).toBe("custom");
   });
 
+  it("tenant resolution: option, entry.tenantId, metadata.tenantId, ambient", async () => {
+    const base = entry({ tenantId: "from-entry", metadata: { tenantId: "from-meta" } });
+    expect((await drizzleAuditEntryToInput(base, { tenant: "opt" }))!.tenant).toBe("opt");
+    expect((await drizzleAuditEntryToInput(base, {}))!.tenant).toBe("from-entry");
+    expect(
+      (await drizzleAuditEntryToInput(entry({ metadata: { tenantId: "from-meta" } }), {}))!.tenant,
+    ).toBe("from-meta");
+    await expect(drizzleAuditEntryToInput(entry({ metadata: null }), {})).rejects.toThrow(
+      "no tenant",
+    );
+  });
+
+  it("a live entry and its stored row (new id) map to the same event id", async () => {
+    const live = entry({ id: "live-uuid" });
+    const stored = { ...live, id: 42, timestamp: new Date(live.timestamp as string).toISOString() };
+    expect(await drizzleAuditEventId(stored)).toBe(await drizzleAuditEventId(live));
+  });
+
   it("event ids are deterministic and time-sortable", async () => {
     const a = await drizzleAuditEventId(entry());
     expect(a).toMatch(/^evt_[0-9A-HJKMNP-TV-Z]{26}$/);
     expect(await drizzleAuditEventId(entry())).toBe(a);
-    expect(await drizzleAuditEventId(entry({ id: "other" }))).not.toBe(a);
+    // Content-derived: drizzleTableStorage does not keep entry.id, so it is not part of the id.
+    expect(await drizzleAuditEventId(entry({ id: "other" }))).toBe(a);
+    expect(await drizzleAuditEventId(entry({ rowId: "other" }))).not.toBe(a);
     const later = await drizzleAuditEventId(entry({ timestamp: "2026-01-02T03:04:06.000Z" }));
     expect(later > a).toBe(true);
     await expect(drizzleAuditEventId(entry({ timestamp: "nope" }))).rejects.toThrow(
@@ -223,7 +243,6 @@ describe("mapping", () => {
       { tenant: "acme" },
     );
     expect(odd!.metadata).toEqual({
-      entryId: "7",
       changes: { big: "10", at: "2026-01-01T00:00:00.000Z" },
       oldData: null,
       newData: null,
@@ -282,12 +301,12 @@ describe("importDrizzleAuditEntries", { timeout: 60_000 }, () => {
     const events = await importDrizzleAuditEntries(
       core,
       [
-        entry({ id: "b", timestamp: t }),
-        entry({ id: "a", timestamp: t }),
-        entry({ id: "c", timestamp: t }),
+        entry({ id: "b", rowId: "2", timestamp: t }),
+        entry({ id: "a", rowId: "1", timestamp: t }),
+        entry({ id: "c", rowId: "3", timestamp: t }),
       ],
       { tenant: "acme", include: (r) => r.id !== "c" },
     );
-    expect(events.map((e) => e.metadata.entryId)).toEqual(["a", "b"]);
+    expect(events.map((e) => e.targets[0]?.id)).toEqual(["1", "2"]);
   });
 });

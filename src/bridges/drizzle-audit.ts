@@ -12,12 +12,20 @@
  * Mapping (overridable): `action` = `db.<table>.<insert|update|delete>`
  * (lower-cased; custom actions such as `trackAction` keep their name),
  * `targets` = `[{ type: table, id: rowId }]`, `actor.id` = `userId`,
- * `metadata` = `{ changes, oldData, newData }` (+ `entryId`, + `extra` for
+ * `metadata` = `{ changes, oldData, newData }` (+ `extra` for
  * the context metadata that is not `ip` / `userAgent` / `requestId`), and
  * `context` = `{ ip, userAgent, requestId }` from the entry's metadata.
  *
- * Each event id is derived from the entry id and timestamp (time-sortable and
- * deterministic), so re-writing or re-importing the same entry is a no-op.
+ * The tenant is the bridge's `tenant` option when given, else drizzle-audit's
+ * `entry.tenantId` (newer releases), else `entry.metadata.tenantId` (0.1.x
+ * convention), else the ambient audit context's tenant.
+ *
+ * Each event id is derived from the entry's **content** (timestamp, table,
+ * action, row id, user, changes) — not from `entry.id`, which
+ * `drizzleTableStorage` does not persist (stored rows get a fresh id). So the
+ * same change forwarded live and later imported from the table maps to the same
+ * event, and re-writing or re-importing is a no-op, as long as the database
+ * keeps the timestamp's millisecond precision.
  *
  * Typed structurally — **no dependency** on `drizzle-audit` in either direction.
  *
@@ -46,6 +54,8 @@ export interface DrizzleAuditEntry {
   timestamp: Date | string | number;
   userId: string | null;
   metadata: Record<string, unknown> | null;
+  /** The entry's tenant (drizzle-audit releases after 0.1.13). */
+  tenantId?: string | null;
 }
 
 /** drizzle-audit's `AuditStorage`, structurally. */
@@ -58,11 +68,12 @@ export interface DrizzleAuditStorageLike {
 /** How a drizzle-audit entry maps to an audit event. */
 export interface DrizzleAuditMapping {
   /**
-   * The tenant of an entry: a fixed key, or a function (e.g. reading
-   * `entry.metadata.tenantId`). Return `null` / `undefined` to fall back to
-   * the ambient audit context's tenant; entries with no tenant at all throw.
+   * The tenant of an entry: a fixed key, or a function. Return `null` /
+   * `undefined` (or omit the option) to fall back to `entry.tenantId`, then
+   * `entry.metadata.tenantId`, then the ambient audit context's tenant;
+   * entries with no tenant at all throw.
    */
-  tenant: string | ((entry: DrizzleAuditEntry) => string | null | undefined);
+  tenant?: string | ((entry: DrizzleAuditEntry) => string | null | undefined);
   /** Override the action name. Default: see the module docs. */
   action?: (entry: DrizzleAuditEntry) => string;
   /**
@@ -125,8 +136,9 @@ const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 /**
  * A deterministic, time-sortable event id for an entry: the entry timestamp
- * (48 bits, like every `evt_` id) followed by 80 bits of SHA-256 of the entry
- * id — so the same entry always maps to the same event.
+ * (48 bits, like every `evt_` id) followed by 80 bits of SHA-256 over the
+ * entry's content (not `entry.id`, which stored rows do not keep) — so the same
+ * change always maps to the same event, live or imported.
  */
 export async function drizzleAuditEventId(entry: DrizzleAuditEntry): Promise<string> {
   let ms = entryTime(entry);
@@ -136,7 +148,19 @@ export async function drizzleAuditEventId(entry: DrizzleAuditEntry): Promise<str
     ms = Math.floor(ms / 32);
   }
   const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`drizzle-audit:${entry.id}`)),
+    await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(
+        `drizzle-audit:${JSON.stringify([
+          entryTime(entry),
+          entry.tableName,
+          entry.action,
+          entry.rowId === null ? null : String(entry.rowId),
+          entry.userId,
+          toJson(entry.changes),
+        ])}`,
+      ),
+    ),
   );
   let random = "";
   for (let i = 0; i < 16; i++) random += CROCKFORD[digest[i]! % 32];
@@ -153,8 +177,11 @@ export async function drizzleAuditEntryToInput(
 ): Promise<RecordInput | null> {
   if (mapping.include && !mapping.include(entry)) return null;
   const scope = getAuditContext();
+  const metaTenant = entry.metadata?.tenantId;
   const tenant =
     (typeof mapping.tenant === "function" ? mapping.tenant(entry) : mapping.tenant) ??
+    entry.tenantId ??
+    (typeof metaTenant === "string" ? metaTenant : undefined) ??
     scope?.tenant;
   if (!tenant) {
     throw new TypeError(
@@ -182,7 +209,6 @@ export async function drizzleAuditEntryToInput(
     }
   }
   const metadata: JsonObject = {
-    entryId: String(entry.id),
     changes: toJson(entry.changes) as JsonObject | null,
     oldData: toJson(entry.oldData) as JsonObject | null,
     newData: toJson(entry.newData) as JsonObject | null,
