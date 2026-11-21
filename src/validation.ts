@@ -6,8 +6,16 @@
  * @module
  */
 
+import { issuesFrom, jsonValueSchema, type ValidationResult } from "@xtandard/kit/util";
 import * as v from "valibot";
 import type { AuditEventInput } from "./schema.ts";
+
+export {
+  assertValid,
+  ValidationError,
+  type ValidationIssue,
+  type ValidationResult,
+} from "@xtandard/kit/util";
 
 /** Allowed characters for tenant keys. */
 export const TENANT_REGEX = /^[a-zA-Z0-9_.:@-]+$/;
@@ -15,44 +23,6 @@ export const TENANT_REGEX = /^[a-zA-Z0-9_.:@-]+$/;
 export const ACTION_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 /** Maximum serialized size of one event's free-form sections, in bytes. Default for `maxEventBytes`. */
 export const DEFAULT_MAX_EVENT_BYTES = 65_536;
-
-/** A single validation problem with a dotted path into the offending data. */
-export interface ValidationIssue {
-  path: string;
-  message: string;
-}
-
-/** Result of the `validate*` functions. */
-export interface ValidationResult {
-  valid: boolean;
-  errors: ValidationIssue[];
-}
-
-/** Raised by {@link assertValid} when an input fails validation. Maps to HTTP 422. */
-export class ValidationError extends Error {
-  readonly errors: ValidationIssue[];
-  constructor(errors: ValidationIssue[]) {
-    super(`Validation failed:\n${errors.map((e) => `  - ${e.path}: ${e.message}`).join("\n")}`);
-    this.name = "ValidationError";
-    this.errors = errors;
-  }
-}
-
-/** Throw a {@link ValidationError} when `result` is invalid. */
-export function assertValid(result: ValidationResult): void {
-  if (!result.valid) throw new ValidationError(result.errors);
-}
-
-const jsonValueSchema: v.GenericSchema<unknown> = v.lazy(() =>
-  v.union([
-    v.string(),
-    v.pipe(v.number(), v.finite()),
-    v.boolean(),
-    v.null(),
-    v.array(jsonValueSchema),
-    v.record(v.string(), jsonValueSchema),
-  ]),
-);
 
 const jsonObjectSchema = v.record(v.string(), jsonValueSchema);
 
@@ -121,22 +91,12 @@ const actionDefinitionSchema = v.object({
   updatedAt: v.optional(v.string()),
 });
 
-function structuralIssues(
-  issues: readonly v.BaseIssue<unknown>[],
-  basePath: string,
-): ValidationIssue[] {
-  return issues.map((issue) => {
-    const sub = (issue.path ?? []).map((p) => String(p.key)).join(".");
-    return { path: sub ? `${basePath}.${sub}` : basePath, message: issue.message };
-  });
-}
-
 /** Validate a tenant key. */
 export function validateTenant(tenant: unknown, basePath = "tenant"): ValidationResult {
   const r = v.safeParse(tenantSchema, tenant);
   return r.success
     ? { valid: true, errors: [] }
-    : { valid: false, errors: structuralIssues(r.issues, basePath) };
+    : { valid: false, errors: issuesFrom(r.issues, basePath) };
 }
 
 /**
@@ -155,7 +115,7 @@ export function validateEventInput(
 ): ValidationResult {
   const basePath = options.basePath ?? "event";
   const r = v.safeParse(eventInputSchema, input);
-  if (!r.success) return { valid: false, errors: structuralIssues(r.issues, basePath) };
+  if (!r.success) return { valid: false, errors: issuesFrom(r.issues, basePath) };
   const e = input as AuditEventInput;
   const max = options.maxEventBytes ?? DEFAULT_MAX_EVENT_BYTES;
   const size = new TextEncoder().encode(
@@ -175,5 +135,5 @@ export function validateActionDefinition(input: unknown, basePath = "action"): V
   const r = v.safeParse(actionDefinitionSchema, input);
   return r.success
     ? { valid: true, errors: [] }
-    : { valid: false, errors: structuralIssues(r.issues, basePath) };
+    : { valid: false, errors: issuesFrom(r.issues, basePath) };
 }

@@ -8,7 +8,7 @@ import {
   normalizeQuery,
   toPage,
 } from "../src/query.ts";
-import { idPattern, idTime, newId, sortableId } from "../src/id.ts";
+import { idPattern, idTime, newId } from "../src/id.ts";
 import type { AuditEvent } from "../src/schema.ts";
 
 describe("normalizeQuery", () => {
@@ -102,6 +102,6 @@ describe("ids", () => {
     expect(idTime(fractional)).toBe(ms + 8);
     expect(idTime("evt_!!!!!!!!!!AAAAAAAAAAAAAAAA")).toBeNull();
     // A clock going backwards still yields increasing ids.
-    expect(sortableId(ms - 10_000) > ids[49]!.slice(4)).toBe(true);
+    expect(newId("evt", ms - 10_000) > ids[49]!).toBe(true);
   });
 });
