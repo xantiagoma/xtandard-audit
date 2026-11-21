@@ -31,12 +31,48 @@ export interface FileStorageOptions {
 const JSON_SUFFIX = ".json";
 
 /**
+ * Encode one key segment as a file name that survives case-insensitive and
+ * normalization-insensitive filesystems (macOS, Windows) and never escapes its
+ * directory: uppercase letters become `^` + the lowercase letter, `^` becomes
+ * `^^`, bytes outside `[a-z0-9._~!@,=+-]` become `%XX`, and a leading `.` is
+ * `%2E` (so `.` / `..` / dotfiles cannot appear). Without it, tenants `Acme` and
+ * `acme` would share files on a default macOS volume.
+ */
+export function encodeSegment(segment: string): string {
+  let out = "";
+  for (const byte of new TextEncoder().encode(segment)) {
+    const ch = String.fromCharCode(byte);
+    if (byte >= 0x41 && byte <= 0x5a) out += `^${ch.toLowerCase()}`;
+    else if (ch === "^") out += "^^";
+    else if (/[a-z0-9._~!@,=+-]/.test(ch) && !(ch === "." && out === "")) out += ch;
+    else out += `%${byte.toString(16).toUpperCase().padStart(2, "0")}`;
+  }
+  return out;
+}
+
+/** Reverse {@link encodeSegment}. */
+export function decodeSegment(name: string): string {
+  const bytes: number[] = [];
+  for (let i = 0; i < name.length; i++) {
+    const ch = name[i] as string;
+    if (ch === "^") {
+      const next = name[++i] ?? "";
+      bytes.push((next === "^" ? "^" : next.toUpperCase()).charCodeAt(0));
+    } else if (ch === "%") {
+      bytes.push(Number.parseInt(name.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else bytes.push(ch.charCodeAt(0));
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+/**
  * Map a storage key (e.g. `aud/t/acme/head`) to an absolute file path inside
  * `dir`. Each key segment becomes a directory; the last segment gains a
  * `.json` extension.
  */
 function keyToPath(dir: string, key: string): string {
-  return join(dir, ...key.split("/")) + JSON_SUFFIX;
+  return join(dir, ...key.split("/").map(encodeSegment)) + JSON_SUFFIX;
 }
 
 /**
@@ -47,7 +83,7 @@ function keyToPath(dir: string, key: string): string {
 function pathToKey(dir: string, filePath: string): string | null {
   const rel = relative(dir, filePath);
   if (rel.startsWith("..") || !rel.endsWith(JSON_SUFFIX)) return null;
-  return rel.slice(0, -JSON_SUFFIX.length).split(sep).join("/");
+  return rel.slice(0, -JSON_SUFFIX.length).split(sep).map(decodeSegment).join("/");
 }
 
 /** Recursively collect every `.json` leaf file path under `root`. */

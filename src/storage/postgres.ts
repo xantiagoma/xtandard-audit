@@ -214,7 +214,8 @@ export function createPostgresStorage(options: PostgresStorageOptions): Postgres
       const found = await rows(`SELECT key FROM ${table} WHERE key LIKE $1 ESCAPE '\\'`, [
         `${escapeLike(prefix)}%`,
       ]);
-      return found.map((row) => String(row.key));
+      // Exact prefix semantics whatever the column collation.
+      return found.map((row) => String(row.key)).filter((key) => key.startsWith(prefix));
     },
 
     // ---- native event log --------------------------------------------------------------------
