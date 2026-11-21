@@ -13,7 +13,9 @@ interface AuditStorage {
 }
 ```
 
-Optional capabilities (separate interfaces + guards exported from `@xtandard/audit`): `watch` (change notifications), `transaction`, `compareAndSwap` (multi-writer safety for the KV fallback), and the audit-specific **`EventLogStorage`** (`hasEventLog`).
+Optional capabilities (separate interfaces + guards exported from `@xtandard/audit`): `watch` (change notifications), `compareAndSwap` (multi-writer safety for the KV fallback), and the audit-specific **`EventLogStorage`** (`hasEventLog`). `TransactionalAuditStorage` / `isTransactional` stay exported for compatibility; no driver implements them.
+
+The KV contract, its capabilities and every driver's KV side are [`@xtandard/kit`](https://github.com/xantiagoma/xtandard-kit)'s storage; audit passes its persisted names (table `xtandard_audit`, Mongo `xtandard_audit` / `audit_kv`, channel `xtandard_audit`) and keeps the event log on top of the kit's driver internals (the shared connection, its DDL and its SQL executor).
 
 Control data — the action catalog, per-tenant chain heads, checkpoints, stream cursors and leases — **always** lives in KV keys. Events live in the native event log when the storage has one, and in KV keys otherwise.
 
@@ -66,23 +68,21 @@ The SQL drivers (`postgres`, `sqlite`, `libsql`, `drizzle`) share one layout nex
 
 ## Adapters
 
-| Subpath                                           | Factory                                                  | Peers            | watch                              | CAS | native event log      |
-| ------------------------------------------------- | -------------------------------------------------------- | ---------------- | ---------------------------------- | --- | --------------------- |
-| `storage/memory`                                  | `createMemoryStorage`                                    | —                | ✓                                  | ✓   | ✓                     |
-| `storage/postgres`                                | `createPostgresStorage`                                  | `pg`             | via `withWatch` + `pgListenNotify` |     | ✓                     |
-| `storage/sqlite`                                  | `createSqliteStorage`                                    | — (`bun:sqlite`) |                                    |     | ✓                     |
-| `storage/libsql`                                  | `createLibsqlStorage`                                    | `@libsql/client` |                                    |     | ✓                     |
-| `storage/drizzle`                                 | `createDrizzleStorage`                                   | `drizzle-orm`    | via `withWatch`                    |     | ✓ (with event tables) |
-| `drizzle/pg` / `drizzle/mysql` / `drizzle/sqlite` | `pgAuditTables`, `pgAuditTable`, `pgAuditEventsTable`, … | `drizzle-orm`    |                                    |     | (schema)              |
-| `storage/mongodb`                                 | `createMongoStorage`                                     | `mongodb`        | _tbd_                              |     | ✓ (planned)           |
-| `storage/file`                                    | `createFileStorage`                                      | —                | _tbd_                              |     | KV fallback           |
-| `storage/redis`                                   | `createRedisStorage`, `createRedisJSONStorage`           | `redis`          | _tbd_                              |     | KV fallback           |
-| `storage/unstorage`                               | `createUnstorageStorage`                                 | `unstorage`      |                                    |     | KV fallback           |
-| `storage/cloudflare-kv`                           | `createCloudflareKvStorage`                              | — (binding)      |                                    |     | KV fallback           |
+| Subpath                                           | Factory                                                  | Peers            | watch                              | CAS            | native event log      |
+| ------------------------------------------------- | -------------------------------------------------------- | ---------------- | ---------------------------------- | -------------- | --------------------- |
+| `storage/memory`                                  | `createMemoryStorage`                                    | —                | ✓                                  | ✓              | ✓                     |
+| `storage/postgres`                                | `createPostgresStorage`                                  | `pg`             | via `withWatch` + `pgListenNotify` | ✓              | ✓                     |
+| `storage/sqlite`                                  | `createSqliteStorage`                                    | — (`bun:sqlite`) | via `withWatch`                    | ✓              | ✓                     |
+| `storage/libsql`                                  | `createLibsqlStorage`                                    | `@libsql/client` | via `withWatch`                    | ✓              | ✓                     |
+| `storage/drizzle`                                 | `createDrizzleStorage`                                   | `drizzle-orm`    | via `withWatch`                    | ✓              | ✓ (with event tables) |
+| `drizzle/pg` / `drizzle/mysql` / `drizzle/sqlite` | `pgAuditTables`, `pgAuditTable`, `pgAuditEventsTable`, … | `drizzle-orm`    |                                    |                | (schema)              |
+| `storage/mongodb`                                 | `createMongoStorage`                                     | `mongodb`        | via `withWatch`                    | ✓              | ✓                     |
+| `storage/file`                                    | `createFileStorage`                                      | —                | ✓ (`fs.watch`)                     | ✓ (in-process) | KV fallback           |
+| `storage/redis`                                   | `createRedisStorage`, `createRedisJSONStorage`           | `redis`          | ✓ (keyspace notifications)         | ✓              | KV fallback           |
+| `storage/unstorage`                               | `createUnstorageStorage`                                 | `unstorage`      | via `withWatch`                    |                | KV fallback           |
+| `storage/cloudflare-kv`                           | `createCloudflareKvStorage`                              | — (binding)      | via `withWatch`                    |                | KV fallback           |
 
-_Rows marked tbd/planned are being ported; their columns will be filled in when they land._
-
-Conventions shared by every adapter (ported from `@xtandard/flags` / `@xtandard/webhooks`): factories return `satisfies`-closed literals; `ownsClient = !options.client` — borrowed clients are never closed; optional peers load via lazy memoized dynamic `import()` with an actionable `requirePeer` error; `close()` exists only on owning adapters; custom table names are validated as safe SQL identifiers (`/^[a-zA-Z_][a-zA-Z0-9_]*$/`).
+Conventions shared by every adapter (the kit's): borrowed clients are never closed; optional peers load via a lazy dynamic `import()` with an actionable error naming the `@xtandard/audit/storage/<driver>` subpath; `close()` exists only on owning adapters; custom table names are validated as safe SQL identifiers (`/^[a-zA-Z_][a-zA-Z0-9_]*$/`); a failed connect or DDL is retried on the next call, not cached. KV values are written as canonical JSON (sorted keys), `getKeys` matches the prefix literally (escaped `LIKE`/`GLOB`/`MATCH`, plus an exact `startsWith`), and values written by earlier releases read back and swap unchanged.
 
 ### Postgres
 
@@ -93,7 +93,7 @@ const storage = createPostgresStorage({ connectionString: process.env.DATABASE_U
 // or a pg Pool / Client / PGlite you own: createPostgresStorage({ client: pool })
 ```
 
-Creates its three tables on first use (`CREATE TABLE IF NOT EXISTS`). Every event-log write is a **single statement** (data-modifying CTEs) — atomic without an explicit transaction, so it is correct on a `pg` `Pool` where consecutive queries may land on different connections.
+Creates its three tables on first use (`CREATE TABLE IF NOT EXISTS`); a new KV table gets `key text COLLATE "C"`, an existing one keeps working as is. Every event-log write is a **single statement** (data-modifying CTEs) — atomic without an explicit transaction, so it is correct on a `pg` `Pool` where consecutive queries may land on different connections.
 
 ### SQLite (Bun) and libSQL / Turso
 
@@ -108,7 +108,7 @@ const storage = createLibsqlStorage({
 });
 ```
 
-Both share one SQLite-dialect event log: appends, erasure rewrites and prunes are a few statements run atomically — a `BEGIN IMMEDIATE` transaction on `bun:sqlite`, one `batch(…, "write")` round-trip on libSQL. Action families use `GLOB` (SQLite's `LIKE` ignores ASCII case).
+Both create their tables on first use (`bun:sqlite` is loaded then too, so importing `storage/sqlite` works under Node). Both share one SQLite-dialect event log: appends, erasure rewrites and prunes are a few statements run atomically — a `BEGIN IMMEDIATE` transaction on `bun:sqlite`, one `batch(…, "write")` round-trip on libSQL. Action families use `GLOB` (SQLite's `LIKE` ignores ASCII case).
 
 ### Drizzle
 
@@ -135,7 +135,13 @@ const storage = createDrizzleStorage({
 
 The per-table factories (`pgAuditTable` for KV — same options as the webhooks/flags factory — plus `pgAuditEventsTable`, `pgAuditEventTargetsTable`, and the MySQL/SQLite equivalents) exist when you want different names. `pgAuditTables(name, { schema })` places all three in a Postgres schema. Omitting `events`/`eventTargets` gives a KV-only storage (the core then uses its generic KV event log).
 
-Writes use `db.transaction` (async on Postgres, MySQL and libSQL; a synchronous `immediate` transaction on `bun:sqlite` / `better-sqlite3`). The columns match the raw drivers' tables, so a database can move between `createPostgresStorage`/`createSqliteStorage` and Drizzle.
+Writes use `db.transaction` (async on Postgres, MySQL and libSQL; a synchronous `immediate` transaction on `bun:sqlite` / `better-sqlite3`). The columns match the raw drivers' tables, so a database can move between `createPostgresStorage`/`createSqliteStorage` and Drizzle. The dialect is read from `db` (or pass `dialect`), and `drizzle-orm` is loaded on first use.
+
+**MySQL keys and trailing spaces.** The KV key column is `utf8mb4_bin`, a PAD SPACE collation: `"a "` and `"a"` are the same primary key. The driver matches keys byte-exactly and refuses a write whose key differs from a stored one only by trailing spaces (`KeyCollisionError`, exported from `@xtandard/audit/storage/drizzle`). Audit keys never end in a space (every free-form segment is URI-encoded), and the HTTP API answers 404 for a padded tenant or event id. New tables can use a NO PAD collation: `mysqlAuditTable(name, { keyCollation: "utf8mb4_0900_bin" })` (MySQL 8.0+; `utf8mb4_nopad_bin` on MariaDB). To migrate an existing table:
+
+```sql
+ALTER TABLE xtandard_audit MODIFY `key` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL;
+```
 
 ## The key model
 
@@ -180,8 +186,8 @@ Several processes can record for the same tenant ([ADR 0004](./ADR/0004-tamper-e
 | Storage                              | Cross-process chain safety                                                                                                 |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
 | native event log (all SQL drivers)   | ✓ — `appendEvents` checks the head and `PRIMARY KEY (tenant, seq)` rejects a racing writer; the core re-chains and retries |
-| KV fallback with `compareAndSwap`    | ✓ — the core claims the seq range with a CAS on the chain head                                                             |
-| KV fallback without `compareAndSwap` | single writer per tenant assumed — run recording in one process or pick a native/CAS backend                               |
+| KV fallback with `compareAndSwap`    | ✓ — the core claims the seq range with a CAS on the chain head (redis; file within one process)                            |
+| KV fallback without `compareAndSwap` | single writer per tenant assumed (unstorage, Cloudflare KV) — run recording in one process or pick a native/CAS backend    |
 
 In-process, appends to a tenant are always serialized by a per-tenant mutex.
 
@@ -190,11 +196,14 @@ In-process, appends to a tenant are always serialized by a per-tenant mutex.
 Implement the four KV methods — and, for indexed queries, the `EventLogStorage` methods — then run the conformance suite from this repo's `test/storage-contract.ts` against it:
 
 ```ts
+import { describe, expect, test } from "vitest";
 import { runStorageContractTests } from "./storage-contract.ts";
 
 runStorageContractTests("my-backend", () => createMyStorage(/* fresh, empty */), {
+  t: { describe, test, expect },
+  capabilities: { compareAndSwap: true, watch: false }, // declare every capability
   expectNativeEventLog: true, // asserts hasEventLog(storage)
 });
 ```
 
-It covers KV round-trips, prefix isolation and padded-key ordering; the event log through the core (contiguous chained seqs, every query filter, keyset pagination in both orders and stability under new writes, `eventsBySeq`, counts, batches, idempotent re-records, concurrent records, erasure, tamper detection, prune + continued appends); and, for native adapters, `appendEvents` atomicity and `ChainConflictError`. Use `withWatch(storage, subscribe)` to bolt change notifications onto any adapter from whatever signal your infra already has (`pgListenNotify` ships for Postgres `LISTEN/NOTIFY`).
+It runs the kit's KV conformance suite (`@xtandard/kit/storage/testing`: round-trips, prefix isolation, metacharacters, unicode, empty segments, padded-key ordering, CAS and watch semantics, legacy values) under the `aud` key root; the event log through the core (contiguous chained seqs, every query filter, keyset pagination in both orders and stability under new writes, `eventsBySeq`, counts, batches, idempotent re-records, concurrent records, erasure, tamper detection, prune + continued appends); and, for native adapters, `appendEvents` atomicity and `ChainConflictError`. Use `withWatch(storage, subscribe)` to bolt change notifications onto any adapter from whatever signal your infra already has (`pgListenNotify` ships for Postgres `LISTEN/NOTIFY`).

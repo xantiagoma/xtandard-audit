@@ -9,7 +9,14 @@ force-scoped to their tenant and their token's view filter (see [Portal](./PORTA
 Errors are JSON `{ "error": string, ...extra }`: `400` bad query/cursor, `401` unauthenticated or
 bad portal token, `403` denied (authorization, portal scope, `HookDeniedError`), `404`, `409`
 conflict (`ConflictError`, `SignerRequiredError`), `422` validation (`{ errors: ValidationIssue[] }`),
-`423` readonly.
+`423` readonly. Errors are recognised by name, so an error class from another bundle maps the same.
+
+A `:tenant` or event `:id` path parameter that could never have been recorded (a padded `acme%20`,
+`..`, an id that is not `evt_…`) is a `404`, as is a malformed `%` escape; a `?tenant=` like it is
+a `400`. Recording (`POST /api/tenants/:tenant/events`) keeps its `422` for an invalid tenant.
+`GET {basePath}/healthcheck` answers `{ "ok": true }` inside the panel, a non-API path answers
+`405` with `Allow: GET, HEAD` to other methods, and the OpenAPI `info.version` is the package
+version.
 
 ## Query parameters (event listing and export)
 
