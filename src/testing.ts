@@ -16,6 +16,7 @@
  * @module testing
  */
 
+import { collectingSink as kitCollectingSink } from "@xtandard/kit/testing";
 import { createAuditCore, type AuditCore, type AuditCoreOptions } from "./core.ts";
 import type {
   AuditActor,
@@ -67,30 +68,21 @@ export interface CollectingSink extends AuditSink {
  * ```
  */
 export function collectingSink(kind = "collecting"): CollectingSink {
-  const batches: StreamBatch[] = [];
-  let failures: { remaining: number; error: Error } = { remaining: 0, error: new Error() };
+  // The kit's collecting sink, holding whole batches (cloned, so later mutation never shows).
+  const collected = kitCollectingSink<StreamBatch>({ clone: true });
+  const batches = collected.items;
   return {
     kind,
     batches,
-    async send(batch) {
-      if (failures.remaining > 0) {
-        failures.remaining--;
-        throw failures.error;
-      }
-      batches.push(structuredClone(batch));
-    },
+    send: (batch) => collected.push(batch),
     events: () =>
       batches.flatMap((b) => b.items.flatMap((i) => (i.kind === "event" ? [i.event] : []))),
     checkpoints: () =>
       batches.flatMap((b) =>
         b.items.flatMap((i) => (i.kind === "checkpoint" ? [i.checkpoint] : [])),
       ),
-    failNext(n = 1, error = new Error("collectingSink: simulated failure")) {
-      failures = { remaining: n, error };
-    },
-    clear() {
-      batches.length = 0;
-    },
+    failNext: (n, error) => collected.failNext(n, error),
+    clear: () => collected.clear(),
   };
 }
 
