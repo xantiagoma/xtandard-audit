@@ -49,7 +49,7 @@ export default defineConfig({
   // every release — don't enforce our formatter on it. The docs site's .mdx
   // pages are excluded too: the formatter mangles MDX (JSX + Markdown).
   fmt: {
-    ignorePatterns: ["CHANGELOG.md", "site/**/*.mdx"],
+    ignorePatterns: ["CHANGELOG.md", "site/**/*.mdx", "NOTES-*.md"],
   },
   staged: {
     // Pre-commit only formats (fast, and never errors on lint-ignored paths like
