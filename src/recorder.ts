@@ -22,6 +22,7 @@ import type { AuditCore, RecordInput } from "./core.ts";
 import type { AuditEvent } from "./schema.ts";
 import type { ActionMap } from "./standard-schema.ts";
 import { getAuditContext } from "./context.ts";
+import { newId } from "./id.ts";
 import { assertValid, validateEventInput } from "./validation.ts";
 
 /** Thrown by {@link Recorder.record} when the queue is full. */
@@ -158,6 +159,9 @@ export function createRecorder<A extends ActionMap>(
         ...(raw.actor === undefined && scope?.actor ? { actor: scope.actor } : {}),
         ...(scope?.context ? { context: { ...scope.context, ...raw.context } } : {}),
         occurredAt: raw.occurredAt ?? new Date(),
+        // An id fixed at enqueue time makes retries and fallback replays idempotent: a batch
+        // that partially committed (recordMany commits per tenant) is not duplicated.
+        id: raw.id ?? newId("evt"),
       };
       assertValid(validateEventInput(resolved));
       queue.push(resolved as RecordInput<A>);

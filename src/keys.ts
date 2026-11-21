@@ -12,6 +12,7 @@
  * aud/t/{tenant}/head                                  -> ChainHead
  * aud/t/{tenant}/checkpoints/{chk id}                  -> AuditCheckpoint (time-sortable id)
  * aud/streams/{stream}/cursors/{tenant}                -> StreamCursor
+ * aud/streams/{stream}/meta                            -> { startedAt }
  * aud/streams/{stream}/lease                           -> StreamLease
  *
  * — generic event log (KV fallback only) —
@@ -63,6 +64,8 @@ export const streamCursorsPrefix = (stream: string) => `${ROOT}/streams/${enc(st
 /** One stream cursor. */
 export const streamCursorKey = (stream: string, tenant: string) =>
   `${streamCursorsPrefix(stream)}${enc(tenant)}`;
+/** A stream's metadata (first-run marker). */
+export const streamMetaKey = (stream: string) => `${ROOT}/streams/${enc(stream)}/meta`;
 /** A stream's runner lease. */
 export const streamLeaseKey = (stream: string) => `${ROOT}/streams/${enc(stream)}/lease`;
 

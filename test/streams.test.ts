@@ -135,3 +135,46 @@ describe("createStreamRunner", () => {
     expect(send).toHaveBeenCalled();
   });
 });
+
+describe("stream start semantics and leases", () => {
+  it('startFrom "now" pins existing tenants but streams new tenants from their first event', async () => {
+    const audit = createAuditCore({ storage: createMemoryStorage() });
+    const got: StreamBatch[] = [];
+    await audit.record({ tenant: "old", action: "x", actor: { id: "u" } });
+    const runner = createStreamRunner(audit, {
+      streams: [{ name: "s", sink: callbackSink((b) => void got.push(b)) }],
+      onError: quiet,
+    });
+    await runner.tick();
+    // A tenant created between ticks: its first events must not be skipped.
+    await audit.record({ tenant: "new", action: "x", actor: { id: "u" } });
+    await audit.record({ tenant: "new", action: "x", actor: { id: "u" } });
+    await audit.record({ tenant: "old", action: "x", actor: { id: "u" } });
+    await runner.tick();
+    expect(seqs(got).sort()).toEqual(["new:1", "new:2", "old:2"]);
+  });
+
+  it("a second runner on CAS storage does not pump a stream while the lease is held", async () => {
+    const storage = createMemoryStorage();
+    const audit = createAuditCore({ storage });
+    const a: string[] = [];
+    const b: string[] = [];
+    const mk = (into: string[]) =>
+      createStreamRunner(audit, {
+        streams: [
+          {
+            name: "s",
+            startFrom: "beginning",
+            sink: callbackSink((batch) => void into.push(...batch.items.map(() => "x"))),
+          },
+        ],
+        onError: quiet,
+      });
+    await audit.record({ tenant: "t", action: "x", actor: { id: "u" } });
+    await mk(a).tick();
+    await audit.record({ tenant: "t", action: "x", actor: { id: "u" } });
+    await mk(b).tick();
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(0);
+  });
+});

@@ -106,3 +106,28 @@ describe("createRecorder", () => {
     await recorder.close();
   });
 });
+
+describe("recorder idempotency", () => {
+  it("assigns ids at enqueue, so replaying a partially committed batch does not duplicate", async () => {
+    const audit = createAuditCore({ storage: createMemoryStorage() });
+    const real = audit.recordMany.bind(audit);
+    let first = true;
+    audit.recordMany = async (inputs) => {
+      if (first) {
+        first = false;
+        await real(inputs.filter((i) => i.tenant === "a")); // tenant "a" commits…
+        throw new Error("db down"); // …then the batch fails
+      }
+      return real(inputs);
+    };
+    const recorder = createRecorder(audit, {
+      retry: { attempts: 1, baseDelayMs: 1 },
+      flushIntervalMs: 60_000,
+    });
+    recorder.record({ tenant: "a", action: "x", actor: { id: "u" } });
+    recorder.record({ tenant: "b", action: "x", actor: { id: "u" } });
+    await recorder.close();
+    expect(await audit.count("a")).toBe(1);
+    expect(await audit.count("b")).toBe(1);
+  });
+});
