@@ -64,6 +64,7 @@
       },
       "peerDependencies": {
         "@libsql/client": "0.15.15",
+        "aws4fetch": "^1.0.0",
         "drizzle-orm": ">=0.44.0 || >=1.0.0-0",
         "elysia": "^1.0.0 || ^2.0.0-0",
         "express": "^4.0.0 || ^5.0.0",
@@ -77,6 +78,7 @@
       },
       "optionalPeers": [
         "@libsql/client",
+        "aws4fetch",
         "drizzle-orm",
         "elysia",
         "express",
