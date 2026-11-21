@@ -4,6 +4,8 @@ Two ways to get the interface: the **bundled SPA** every adapter serves automati
 
 ## `<AuditPortal>` — the flagship embed
 
+<img src="https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-react-embed-light.png" alt="AuditPortal inside a host React app" width="800" />
+
 Your customers browse, filter, export and **verify** their own audit log inside _your_ product:
 
 ```tsx
@@ -25,6 +27,8 @@ export function AuditLogPage() {
 The component attaches the token as a Bearer credential on every API call; the panel force-scopes everything to the token's tenant and AND-s the token's view filter into every query and export ([Portal](./PORTAL.md)). The rendered chrome is the reduced portal set: the Events explorer (no tenant switcher, no erase), the export menu, a **Verify log integrity** panel ("Verified through #N, signed by key K"), and the read-only action catalog and integrity page when the token's grant includes them. Tokens are short-lived (`"1h"` by default): re-mint and pass the new `token` prop — the component picks it up without remounting.
 
 ## `<AuditDashboard>` — the full admin, embedded
+
+<img src="https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-events-dark.png" alt="The admin dashboard, dark theme" width="800" />
 
 ```tsx
 import { AuditDashboard } from "@xtandard/audit/react";
@@ -70,6 +74,12 @@ The embed resolves one theme and applies it to its own wrapper (`<div class="xta
 ```
 
 ## The bundled SPA
+
+|                                                                                                                 |                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| ![Overview](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-overview-light.png) | ![Event detail](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-event-detail.png)    |
+| ![Integrity](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-integrity.png)     | ![Streams](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-streams.png)              |
+| ![Tenants](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-tenants.png)         | ![Customer portal](https://raw.githubusercontent.com/xantiagoma/xtandard-audit/main/docs/assets/ui-portal-light.png) |
 
 Served by every adapter at the mount point; no React required in the host. Views (each hidden when `/config.allowed` does not grant its read action):
 
