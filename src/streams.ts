@@ -15,7 +15,7 @@
 
 import type { AuditCore } from "./core.ts";
 import { durationToMs } from "./duration.ts";
-import { streamCursorKey, streamLeaseKey } from "./keys.ts";
+import { streamCursorKey, streamLeaseKey, streamMetaKey } from "./keys.ts";
 import { matchesQuery, normalizeQuery } from "./query.ts";
 import type { AuditCheckpoint, AuditDuration, AuditEvent, AuditQuery } from "./schema.ts";
 import type { ActionMap } from "./standard-schema.ts";
@@ -59,8 +59,9 @@ export interface StreamDefinition {
   /** Max items per `send`. Default 100. */
   batchSize?: number;
   /**
-   * Where a new cursor starts: `"beginning"` (replay the retained log) or
-   * `"now"` (only events recorded after the stream is first seen). Default `"now"`.
+   * Where the stream starts the first time it runs: `"beginning"` (replay every retained log)
+   * or `"now"` (tenants that already exist start at their current head; tenants created later
+   * are streamed from their first event). Default `"now"`.
    */
   startFrom?: "beginning" | "now";
 }
@@ -173,20 +174,36 @@ export function createStreamRunner<A extends ActionMap>(
     return stream.tenants ? all.filter((t) => stream.tenants!.includes(t)) : all;
   }
 
+  /**
+   * The first time a stream ever runs, `startFrom: "now"` pins every tenant that exists at that
+   * moment to its current head. Tenants that appear later start from the beginning of their log —
+   * otherwise events recorded before the runner first noticed a new tenant would never be streamed.
+   */
+  async function ensureStarted(stream: StreamDefinition): Promise<void> {
+    const key = streamMetaKey(stream.name);
+    if (await storage.getItem(key)) return;
+    if ((stream.startFrom ?? "now") === "now") {
+      for (const tenant of await tenantsFor(stream)) {
+        const cursorKey = streamCursorKey(stream.name, tenant);
+        if (await storage.getItem(cursorKey)) continue;
+        const head = await core.head(tenant);
+        const cps = await core.listCheckpoints(tenant);
+        const last = cps[cps.length - 1];
+        await storage.setItem(cursorKey, {
+          seq: head.seq,
+          failures: 0,
+          ...(last ? { checkpointId: last.id } : {}),
+        } satisfies StreamCursor);
+      }
+    }
+    await storage.setItem(key, { startedAt: new Date(now()).toISOString() });
+  }
+
   async function readCursor(stream: StreamDefinition, tenant: string): Promise<StreamCursor> {
     const existing = await storage.getItem<StreamCursor>(streamCursorKey(stream.name, tenant));
     if (existing) return existing;
-    const start = stream.startFrom ?? "now";
     const head = await core.head(tenant);
-    const cursor: StreamCursor = {
-      seq: start === "now" ? head.seq : (head.baseSeq ?? 1) - 1,
-      failures: 0,
-    };
-    if (start === "now") {
-      const cps = await core.listCheckpoints(tenant);
-      const last = cps[cps.length - 1];
-      if (last) cursor.checkpointId = last.id;
-    }
+    const cursor: StreamCursor = { seq: (head.baseSeq ?? 1) - 1, failures: 0 };
     await storage.setItem(streamCursorKey(stream.name, tenant), cursor);
     return cursor;
   }
@@ -215,6 +232,9 @@ export function createStreamRunner<A extends ActionMap>(
       cursor = { ...cursor, seq: head.baseSeq - 1 };
 
     for (;;) {
+      // Renew the lease per batch so a long backlog cannot outlive it (another instance would
+      // then pump the same stream concurrently).
+      if (!(await acquireLease(stream))) return;
       const events = await core.eventsBySeq(tenant, { afterSeq: cursor.seq, limit: batchSize });
       const items: StreamItem[] = [];
       for (const event of events) {
@@ -263,6 +283,7 @@ export function createStreamRunner<A extends ActionMap>(
     running = (async () => {
       for (const stream of options.streams) {
         if (!(await acquireLease(stream))) continue;
+        await ensureStarted(stream);
         for (const tenant of await tenantsFor(stream)) {
           try {
             await pumpTenant(stream, tenant);
