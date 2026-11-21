@@ -29,7 +29,12 @@ export const branch = "main";
  * domain. pages.yml passes what actions/configure-pages reports (SITE_ORIGIN, SITE_BASE), so a
  * domain change needs no code change.
  */
-export const siteOrigin = process.env.SITE_ORIGIN || "https://me.xantiagoma.com";
+// configure-pages reports the custom domain as http:// (HTTPS is served, but the reported origin is
+// not upgraded); canonical URLs, the sitemap and og:image must be https.
+export const siteOrigin = (process.env.SITE_ORIGIN || "https://me.xantiagoma.com").replace(
+  /^http:\/\//,
+  "https://",
+);
 export const siteBase = (process.env.SITE_BASE || "/xtandard-audit").replace(/\/+$/, "");
 
 // ---- entry points ---------------------------------------------------------------------------
