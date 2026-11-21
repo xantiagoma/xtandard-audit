@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.1.1
+
+Branding polish in the shipped UI. No API, storage, integrity-format or HTTP changes.
+
+### Changed
+
+- **UI** — the admin SPA, the customer portal and the `<AuditDashboard>` / `<AuditPortal>` React embeds show the bare xtandard-audit symbol in the header (no square tile), in each theme's lime: a new light-theme variant on light surfaces, the original on dark. A custom `logoUrl` still replaces it. ([#22](https://github.com/xantiagoma/xtandard-audit/pull/22))
+- **README** — the header, the docs site and the brand kit use SVG logos only; the horizontal lockups centre the symbol vertically on the wordmark ([#23](https://github.com/xantiagoma/xtandard-audit/pull/23)). The ecosystem table lists `@xtandard/links` and `@xtandard/entitlements`. This also fixes the logo in the README shown on npm, which pointed at PNG lockups that no longer exist.
+
+### Internal
+
+- The pre-commit `vp staged` hook no longer fails on commits that stage only `.mdx` files or `CHANGELOG.md` ([#24](https://github.com/xantiagoma/xtandard-audit/pull/24)).
+
+### Migration
+
+None. Drop-in upgrade from 0.1.0: stored events, checkpoints, bundles and stream cursors are unchanged, and nothing needs re-verifying. If you style the panel header with your own CSS, note the symbol is now a bare `<img>` (`h-6`) instead of an image inside a 28 px dark chip.
+
 ## v0.1.0
 
 First release: a self-hosted, embeddable, tamper-evident audit-log control plane for B2B SaaS, as a library. See the [documentation](https://me.xantiagoma.com/xtandard-audit/) and the [ADRs](docs/ADR).
