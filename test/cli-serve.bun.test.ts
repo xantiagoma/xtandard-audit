@@ -34,8 +34,18 @@ const serveProc = Bun.spawn(["bun", "-e", "import('./src/cli.ts').then((m) => m.
   stderr: "pipe",
 });
 
+// Empty AUTH_MODE means the default `none` (not an unknown mode).
+const OPEN_PORT = PORT + 500;
+const openProc = Bun.spawn(["bun", "-e", "import('./src/cli.ts').then((m) => m.run(['serve']))"], {
+  cwd: process.cwd(),
+  env: { ...process.env, PORT: String(OPEN_PORT), AUTH_MODE: "", STORAGE_DRIVER: "memory" },
+  stdout: "pipe",
+  stderr: "pipe",
+});
+
 afterAll(() => {
   serveProc.kill();
+  openProc.kill();
 });
 
 async function waitForServer(url: string, timeoutMs = 20_000): Promise<void> {
@@ -96,3 +106,38 @@ test("serve: portal tokens minted with PORTAL_SECRET are honored", async () => {
   });
   expect(await res.json()).toMatchObject({ portal: true, tenant: "acme" });
 });
+
+test("serve: exits non-zero on an unknown AUTH_MODE instead of serving an open panel", async () => {
+  const proc = Bun.spawn(
+    [
+      "bun",
+      "-e",
+      "import('./src/cli.ts').then((m) => m.run(['serve'])).then((code) => process.exit(code))",
+    ],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PORT: String(OPEN_PORT + 1),
+        AUTH_MODE: "basci",
+        STORAGE_DRIVER: "memory",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const timeout = setTimeout(() => proc.kill(), 20_000);
+  const code = await proc.exited;
+  clearTimeout(timeout);
+  expect(code).not.toBe(0);
+  expect(await new Response(proc.stderr).text()).toContain(
+    'Unknown AUTH_MODE "basci" (expected none or basic)',
+  );
+  expect(await new Response(proc.stdout).text()).not.toContain("listening");
+}, 30_000);
+
+test("serve: an empty AUTH_MODE defaults to none", async () => {
+  const base = `http://localhost:${OPEN_PORT}`;
+  await waitForServer(`${base}/healthcheck`);
+  expect((await fetch(`${base}/api/tenants`)).status).toBe(200);
+}, 30_000);
