@@ -313,6 +313,8 @@ const MAX_CHAIN_RETRIES = 8;
 const PRUNE_PAGE = 500;
 const VERIFY_PAGE = 1000;
 
+let warnedSingleWriter = false;
+
 const isoNow = (now: () => number) => new Date(now()).toISOString();
 
 /**
@@ -357,6 +359,17 @@ export function createAuditCore<const A extends ActionMap = ActionMap>(
       ? false
       : (options.checkpoints ?? (signer ? DEFAULT_CHECKPOINTS : false));
   const cas = isCompareAndSwap(storage) ? storage : null;
+  if (!log.native && !cas && !warnedSingleWriter) {
+    // ADR 0004 §7: without a native event log or compare-and-swap, two processes appending to
+    // the same tenant can fork its chain. Say so once, loudly, like the webhooks dispatcher does.
+    warnedSingleWriter = true;
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[@xtandard/audit] This storage has neither a native event log nor compareAndSwap: run a " +
+        "single writer per tenant, or two processes may fork a tenant's hash chain. Use a native " +
+        "driver (postgres, sqlite, libsql, mongodb, drizzle) or redis/memory. See docs/STORAGE.md.",
+    );
+  }
   const floors = new Set<(tenant: string) => Promise<number | null>>();
 
   // ---- per-tenant serialization + head cache -----------------------------------------------
