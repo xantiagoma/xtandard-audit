@@ -6,6 +6,7 @@
  * @module
  */
 
+import { createPass as kitCreatePass, type PassContext } from "@xtandard/kit/adapters/elysia";
 import { createFetchHandler, type AuditPanelOptions } from "../server/create-fetch-handler.ts";
 
 /** A web-standard fetch handler with `core` + `streams` + `openapi()` + `close()` attached. */
@@ -35,35 +36,19 @@ export interface AuditElysiaOptions extends AuditPanelOptions {
 
 /**
  * Build the handler every declared route delegates to. Elysia parses the body
- * for declared routes, draining the stream; rebuild the Request from the parsed
- * body before delegating (mirrors the Express adapter).
+ * for declared routes, draining the stream; the kit's `createPass` rebuilds the
+ * Request from the parsed body (POST, PUT, PATCH and DELETE; CSV strings pass
+ * through; a stale `content-length` is dropped) before delegating.
  */
 export function createPass(options: AuditElysiaOptions): {
   prefix: string;
   handler: ReturnType<typeof createFetchHandler>;
-  pass: (ctx: { request: Request; body?: unknown }) => Promise<Response>;
+  pass: (ctx: PassContext) => Promise<Response>;
 } {
   const prefix = options.prefix ?? "/audit";
   const handler = createFetchHandler({ ...options, basePath: options.basePath ?? prefix });
 
-  const pass = (ctx: { request: Request; body?: unknown }): Promise<Response> => {
-    const r = ctx.request;
-    if ((r.method === "POST" || r.method === "PUT") && r.bodyUsed) {
-      const body = ctx.body;
-      const parsed = body !== undefined && body !== null && body !== "";
-      const headers = new Headers(r.headers);
-      headers.delete("content-length");
-      return handler.fetch(
-        new Request(r.url, {
-          method: r.method,
-          headers,
-          ...(parsed ? { body: typeof body === "string" ? body : JSON.stringify(body) } : {}),
-        }),
-      );
-    }
-    return handler.fetch(r);
-  };
-
+  const { pass } = kitCreatePass({ prefix, fetch: handler.fetch, name: "xtandard-audit" });
   return { prefix, handler, pass };
 }
 
