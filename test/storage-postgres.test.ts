@@ -14,39 +14,47 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
  */
 const pglite = new PGlite();
 let n = 0;
-const fresh = (prefix = "t") =>
-  createPostgresStorage({ client: pglite, table: `${prefix}_${n++}` });
+const tables = new WeakMap<object, string>();
+const fresh = (prefix = "t") => {
+  const table = `${prefix}_${n++}`;
+  const storage = createPostgresStorage({ client: pglite, table });
+  tables.set(storage, table);
+  return storage;
+};
 
 /**
  * Run the shared {@link AuditStorage} contract suite against the Postgres
  * adapter, backed by in-process PGlite so no server is required and the tests
  * always run.
  */
-runStorageContractTests("postgres (pglite)", () => fresh("kv"), { expectNativeEventLog: true });
+runStorageContractTests("postgres (pglite)", () => fresh("kv"), {
+  t: { describe, test, expect },
+  capabilities: { compareAndSwap: true, watch: false },
+  expectNativeEventLog: true,
+  seedLegacy: async (storage, key, raw) => {
+    await storage.getKeys(""); // run the DDL
+    await pglite.query(`INSERT INTO ${tables.get(storage)} (key, value) VALUES ($1, $2::jsonb)`, [
+      key,
+      raw,
+    ]);
+  },
+});
 
 /** Adapter-specific behaviour against in-process PGlite. */
 describe("createPostgresStorage (pglite)", () => {
-  let storage: PostgresAuditStorage;
-
-  beforeAll(() => {
-    storage = fresh("audit_test");
-  });
-
-  test("round-trips a nested object value", async () => {
-    const value = { action: "invoice.paid", count: 42, tags: ["a", "b"], nested: { x: 1 } };
-    await storage.setItem("aud/actions/invoice.paid", value);
-    expect(await storage.getItem("aud/actions/invoice.paid")).toEqual(value);
-  });
-
-  test("returns null for a missing key", async () => {
-    expect(await storage.getItem("aud/t/acme/does-not-exist")).toBeNull();
-  });
-
-  test("isolates by prefix and escapes LIKE wildcards", async () => {
-    await storage.setItem("aud/t/app_1/a", { v: 1 });
-    await storage.setItem("aud/t/appX1/b", { v: 2 });
-    expect(await storage.getKeys("aud/t/app_1/")).toEqual(["aud/t/app_1/a"]);
-    expect(await storage.getKeys("aud/t/appX1/")).toEqual(["aud/t/appX1/b"]);
+  test('the table defaults to "xtandard_audit" and v0.1.x rows read back', async () => {
+    const client = new PGlite();
+    // The tables an earlier release created, with a row and an event in them.
+    await client.exec(
+      `CREATE TABLE xtandard_audit (key text PRIMARY KEY, value jsonb NOT NULL);
+       INSERT INTO xtandard_audit VALUES ('aud/tenants', '["acme"]');`,
+    );
+    const old = createPostgresStorage({ client });
+    expect(await old.getItem("aud/tenants")).toEqual(["acme"]);
+    expect(await old.getKeys("aud/")).toEqual(["aud/tenants"]);
+    const audit = createAuditCore({ storage: old });
+    await audit.record({ tenant: "acme", action: "x.y", actor: { id: "1" } });
+    expect((await audit.verify("acme")).ok).toBe(true);
   });
 
   test("creates the KV and event-log tables lazily, once", async () => {

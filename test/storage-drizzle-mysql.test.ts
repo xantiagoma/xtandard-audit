@@ -87,7 +87,12 @@ describe.skipIf(!available)("createDrizzleStorage (mysql, live)", () => {
   runStorageContractTests(
     "drizzle (mysql)",
     async () => createDrizzleStorage(await freshTables()),
-    { expectNativeEventLog: true, timeout: 30_000 },
+    {
+      t: { describe, test, expect },
+      capabilities: { compareAndSwap: true, watch: false },
+      expectNativeEventLog: true,
+      timeout: 30_000,
+    },
   );
 
   test("keys and filters are case-sensitive (utf8mb4_bin)", { timeout: 30_000 }, async () => {

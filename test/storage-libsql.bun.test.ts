@@ -54,8 +54,10 @@ function fakeLibsqlClient(): LibsqlClientLike & { closed: boolean; batches: numb
 }
 
 const open: LibsqlAuditStorage[] = [];
+const clients = new WeakMap<object, LibsqlClientLike>();
 const make = (client = fakeLibsqlClient()): LibsqlAuditStorage => {
   const storage = createLibsqlStorage({ client, table: "kv" });
+  clients.set(storage, client);
   open.push(storage);
   return storage;
 };
@@ -65,48 +67,20 @@ afterEach(() => {
 });
 
 runStorageContractTests("libsql (bun:sqlite-backed fake client)", () => make(), {
+  t: { describe, test, expect },
+  capabilities: { compareAndSwap: true, watch: false },
   expectNativeEventLog: true,
+  seedLegacy: async (storage, key, raw) => {
+    // A value written by an earlier release: JSON text with keys in insertion order.
+    await storage.getKeys(""); // run the DDL
+    await clients.get(storage)!.execute({
+      sql: "INSERT INTO kv (key, value) VALUES (?, ?)",
+      args: [key, raw],
+    });
+  },
 });
 
 describe("libsql storage (bun:sqlite-backed fake client)", () => {
-  test("returns null for a missing key", async () => {
-    expect(await make().getItem("aud/t/acme/missing")).toBeNull();
-  });
-
-  test("round-trips an object value", async () => {
-    const storage = make();
-    const value = { name: "invoice.paid", count: 42, tags: ["a", "b"], nested: { x: 1 } };
-    await storage.setItem("aud/actions/invoice.paid", value);
-    expect(await storage.getItem("aud/actions/invoice.paid")).toEqual(value);
-  });
-
-  test("overwrites an existing key (ON CONFLICT)", async () => {
-    const storage = make();
-    await storage.setItem("aud/k", { v: 1 });
-    await storage.setItem("aud/k", { v: 2 });
-    expect(await storage.getItem("aud/k")).toEqual({ v: 2 });
-  });
-
-  test("removeItem deletes a key; missing is a no-op", async () => {
-    const storage = make();
-    await storage.setItem("aud/k", { v: 1 });
-    await storage.removeItem("aud/k");
-    expect(await storage.getItem("aud/k")).toBeNull();
-    await storage.removeItem("aud/nope");
-  });
-
-  test("getKeys lists + isolates by prefix (LIKE ESCAPE)", async () => {
-    const storage = make();
-    await storage.setItem("aud/t/app_1/a", 1);
-    await storage.setItem("aud/t/app_1/b", 2);
-    await storage.setItem("aud/t/appX1/c", 3);
-    expect((await storage.getKeys("aud/t/app_1/")).sort()).toEqual([
-      "aud/t/app_1/a",
-      "aud/t/app_1/b",
-    ]);
-    expect(await storage.getKeys("aud/t/none/")).toEqual([]);
-  });
-
   test("event-log writes are single write batches", async () => {
     const client = fakeLibsqlClient();
     const audit = createAuditCore({ storage: make(client) });

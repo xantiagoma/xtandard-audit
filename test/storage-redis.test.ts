@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { asRedisClient, fakeRedis } from "@xtandard/kit/storage/testing";
 import { createAuditCore } from "../src/core.ts";
 import { createRedisStorage, type RedisAuditStorage } from "../src/storage/redis.ts";
 import { hasEventLog, isCompareAndSwap, isWatchable } from "../src/storage/contract.ts";
-import { fakeRedisClient } from "./redis-fake.ts";
 import { runStorageContractTests } from "./storage-contract.ts";
 
 const REDIS_URL = process.env.REDIS_URL;
+const t = { describe, test, expect };
 
 // Probe a configured server up front (short timeout) so a set-but-unreachable
 // REDIS_URL skips the live suites instead of hanging on reconnects.
@@ -21,6 +22,8 @@ if (REDIS_URL) {
   try {
     await probe.connect();
     await probe.ping();
+    // Keyspace notifications are off by default (e.g. the CI redis service).
+    await probe.configSet("notify-keyspace-events", "KEA");
     available = true;
   } catch {
     available = false;
@@ -62,8 +65,24 @@ describe.skipIf(!available)("redis storage (live conformance)", () => {
       opened.push(storage);
       return storage;
     },
-    { expectNativeEventLog: false, timeout: 20_000 },
+    {
+      t,
+      capabilities: { compareAndSwap: true, watch: { settleMs: 150 } },
+      expectNativeEventLog: false,
+      timeout: 20_000,
+    },
   );
+
+  test("multiple writers append to one tenant without forking the chain", async () => {
+    const { report, head } = await multiWriter(() => {
+      const s = createRedisStorage({ url: REDIS_URL, prefix: `${runId}:mw` });
+      opened.push(s);
+      return s;
+    });
+    expect(report.ok).toBe(true);
+    expect(report.checked).toBe(12);
+    expect(head.seq).toBe(12);
+  });
 
   afterAll(async () => {
     await Promise.all(
@@ -75,95 +94,16 @@ describe.skipIf(!available)("redis storage (live conformance)", () => {
   }, 120_000);
 });
 
-/** Adapter-specific live behaviour (prefix stripping, CAS, multi-writer, watch). */
-describe.skipIf(!available)("createRedisStorage (live)", () => {
-  const prefix = `xtandard-audit-live:${Date.now()}`;
-  const opened: RedisAuditStorage[] = [];
-  let storage: RedisAuditStorage;
-
-  beforeAll(() => {
-    storage = createRedisStorage({ url: REDIS_URL, prefix });
-    opened.push(storage);
-  });
-
-  afterAll(async () => {
-    await Promise.all((await storage.getKeys("")).map((k) => storage.removeItem(k)));
-    for (const s of opened) {
-      await Promise.all((await s.getKeys("")).map((k) => s.removeItem(k)));
-      await s.close();
-    }
-  }, 120_000);
-
-  test("getKeys lists matching keys with the prefix stripped", async () => {
-    await storage.setItem("aud/t/acme/head", { seq: 1 });
-    await storage.setItem("aud/t/acme/checkpoints/chk_1", { v: 2 });
-    const keys = await storage.getKeys("aud/t/acme/");
-    expect(keys.sort()).toEqual(["aud/t/acme/checkpoints/chk_1", "aud/t/acme/head"]);
-    for (const k of keys) expect(k.startsWith(prefix)).toBe(false);
-  });
-
-  test("getKeys treats glob metacharacters in the prefix literally", async () => {
-    await storage.setItem("aud/t/a*/ix/actor/x", 1);
-    await storage.setItem("aud/t/ab/ix/actor/y", 2);
-    expect(await storage.getKeys("aud/t/a*/")).toEqual(["aud/t/a*/ix/actor/x"]);
-  });
-
-  test("compareAndSwap: absent key, mismatch, structural match", async () => {
-    const key = "aud/t/cas/head";
-    expect(await storage.compareAndSwap({ key, expected: { seq: 1 }, next: { seq: 2 } })).toBe(
-      false,
-    );
-    expect(await storage.compareAndSwap({ key, expected: null, next: { seq: 1, hash: "h" } })).toBe(
-      true,
-    );
-    expect(await storage.compareAndSwap({ key, expected: null, next: { seq: 9 } })).toBe(false);
-    expect(await storage.compareAndSwap({ key, expected: { seq: 0 }, next: { seq: 9 } })).toBe(
-      false,
-    );
-    // Key order does not matter: values are compared structurally.
-    expect(
-      await storage.compareAndSwap({ key, expected: { hash: "h", seq: 1 }, next: { seq: 2 } }),
-    ).toBe(true);
-    expect(await storage.getItem(key)).toEqual({ seq: 2 });
-  });
-
-  test("multiple writers append to one tenant without forking the chain", async () => {
-    const { report, head } = await multiWriter(() => {
-      const s = createRedisStorage({ url: REDIS_URL, prefix: `${prefix}:mw` });
-      opened.push(s);
-      return s;
-    });
-    expect(report.ok).toBe(true);
-    expect(report.checked).toBe(12);
-    expect(head.seq).toBe(12);
-  });
-
-  test("watch delivers update and remove events (keyspace notifications)", async () => {
-    // Keyspace notifications are off by default (e.g. the CI redis service); enable
-    // them so this works regardless of the server's startup config.
-    const { createClient } = await import("redis");
-    const cfg = createClient({ url: REDIS_URL });
-    await cfg.connect();
-    await cfg.configSet("notify-keyspace-events", "KEA");
-    await cfg.quit();
-
-    const events: { type: string; key: string }[] = [];
-    const off = await storage.watch("aud/watch/", (e) => events.push(e));
-    await storage.setItem("aud/watch/e/k", { v: 1 });
-    await storage.removeItem("aud/watch/e/k");
-    // Give pub/sub a moment to deliver.
-    await new Promise((r) => setTimeout(r, 500));
-    off();
-    expect(events.some((e) => e.type === "update" && e.key === "aud/watch/e/k")).toBe(true);
-    expect(events.some((e) => e.type === "remove" && e.key === "aud/watch/e/k")).toBe(true);
-  });
-});
-
 describe.skipIf(!available)("createRedisStorage — borrowed client", () => {
-  test("close() is a no-op for a client the adapter did not create", async () => {
+  let client: { connect(): Promise<unknown>; quit(): Promise<unknown>; isOpen: boolean };
+
+  beforeAll(async () => {
     const { createClient } = await import("redis");
-    const client = createClient({ url: REDIS_URL });
+    client = createClient({ url: REDIS_URL });
     await client.connect();
+  });
+
+  test("close() is a no-op for a client the adapter did not create", async () => {
     const storage = createRedisStorage({
       client: client as never,
       prefix: `borrowed:${Date.now()}`,
@@ -171,44 +111,23 @@ describe.skipIf(!available)("createRedisStorage — borrowed client", () => {
     await storage.setItem("aud/b/k", { v: 1 });
     expect(await storage.getItem("aud/b/k")).toEqual({ v: 1 });
     await storage.removeItem("aud/b/k");
-    // close() must NOT disconnect a borrowed client.
     await storage.close();
     expect(client.isOpen).toBe(true);
-    // clean up the client ourselves.
     await client.quit();
   });
 });
 
-// The whole contract over the fake client: exercises prefixing, SCAN, and the
-// core's CAS-guarded KV event log without a server.
+// The whole contract over the kit's Redis double: exercises prefixing, SCAN,
+// watch, the CAS script and the core's CAS-guarded KV event log without a server.
 runStorageContractTests(
   "redis (fake client)",
-  () => createRedisStorage({ client: fakeRedisClient().client, prefix: "ns" }),
-  { expectNativeEventLog: false },
+  () => createRedisStorage({ client: asRedisClient(fakeRedis()), prefix: "ns" }),
+  { t, capabilities: { compareAndSwap: true, watch: true }, expectNativeEventLog: false },
 );
 
 describe("createRedisStorage (fake client)", () => {
-  test("compareAndSwap sends the script, namespaced key and JSON arguments", async () => {
-    const { client, strings, evalCalls } = fakeRedisClient();
-    const storage = createRedisStorage({ client, prefix: "ns" });
-    expect(await storage.compareAndSwap({ key: "aud/k", expected: null, next: { seq: 1 } })).toBe(
-      true,
-    );
-    expect(strings.get("ns:aud/k")).toBe('{"seq":1}');
-    expect(evalCalls[0]!.keys).toEqual(["ns:aud/k"]);
-    expect(evalCalls[0]!.arguments).toEqual(["1", "", '{"seq":1}']);
-    expect(evalCalls[0]!.script).toContain("redis.call('GET', KEYS[1])");
-    expect(
-      await storage.compareAndSwap({ key: "aud/k", expected: { seq: 0 }, next: { seq: 2 } }),
-    ).toBe(false);
-    expect(
-      await storage.compareAndSwap({ key: "aud/k", expected: { seq: 1 }, next: { seq: 2 } }),
-    ).toBe(true);
-    expect(await storage.getItem("aud/k")).toEqual({ seq: 2 });
-  });
-
   test("multiple writers sharing one keyspace never fork the chain", async () => {
-    const shared = fakeRedisClient().client;
+    const shared = asRedisClient(fakeRedis());
     const { report, head } = await multiWriter(() =>
       createRedisStorage({ client: shared, prefix: "mw" }),
     );
@@ -217,20 +136,18 @@ describe("createRedisStorage (fake client)", () => {
     expect(head.seq).toBe(12);
   });
 
-  test("getKeys escapes glob metacharacters in the prefix", async () => {
-    const { client } = fakeRedisClient();
-    const storage = createRedisStorage({ client, prefix: "ns" });
-    await storage.setItem("aud/t/a*/head", 1);
-    await storage.setItem("aud/t/ab/head", 2);
-    expect(await storage.getKeys("aud/t/a*/")).toEqual(["aud/t/a*/head"]);
-  });
-
-  test("getKeys handles scanIterator yielding batched arrays (node-redis v5)", async () => {
-    const { client } = fakeRedisClient({ batchScan: true });
-    const storage = createRedisStorage({ client, prefix: "x" });
-    await storage.setItem("aud/a", 1);
-    await storage.setItem("aud/b", 2);
-    expect((await storage.getKeys("aud/")).sort()).toEqual(["aud/a", "aud/b"]);
+  test("values written by v0.1.x (non-canonical JSON) read and swap", async () => {
+    const fake = fakeRedis();
+    fake.strings.set("ns:aud/t/acme/head", '{"seq":1,"hash":"h"}');
+    const storage = createRedisStorage({ client: asRedisClient(fake), prefix: "ns" });
+    expect(await storage.getItem("aud/t/acme/head")).toEqual({ seq: 1, hash: "h" });
+    expect(
+      await storage.compareAndSwap({
+        key: "aud/t/acme/head",
+        expected: { hash: "h", seq: 1 },
+        next: { seq: 2 },
+      }),
+    ).toBe(true);
   });
 });
 
@@ -242,10 +159,6 @@ describe("createRedisStorage (fake client)", () => {
 describe("createRedisStorage shape", () => {
   test("exposes the AuditStorage + watch + compareAndSwap + close surface without connecting", () => {
     const storage = createRedisStorage({ url: "redis://localhost:6379", prefix: "x" });
-    expect(typeof storage.getItem).toBe("function");
-    expect(typeof storage.setItem).toBe("function");
-    expect(typeof storage.removeItem).toBe("function");
-    expect(typeof storage.getKeys).toBe("function");
     expect(typeof storage.close).toBe("function");
     expect(isWatchable(storage)).toBe(true);
     expect(isCompareAndSwap(storage)).toBe(true);
@@ -255,14 +168,5 @@ describe("createRedisStorage shape", () => {
   test("close() before any connection is a safe no-op", async () => {
     const storage = createRedisStorage({ url: "redis://localhost:6379" });
     await expect(storage.close()).resolves.toBeUndefined();
-  });
-
-  test("onError handler is observable (attaches without throwing)", () => {
-    const errors: unknown[] = [];
-    const storage = createRedisStorage({
-      url: "redis://localhost:6399",
-      onError: (e) => errors.push(e),
-    });
-    expect(typeof storage.close).toBe("function");
   });
 });

@@ -6,10 +6,12 @@
  * file / embedded replica — so it suits multi-node and edge runtimes where
  * `bun:sqlite` (single-file, Bun-only) does not.
  *
- * Control data lives in a key/value table; events live in the **native event
- * log** tables `{table}_events` / `{table}_event_targets` (ADR 0005, see
+ * Control data lives in a key/value table (`@xtandard/kit/storage/libsql`:
+ * canonical JSON, case-sensitive `GLOB` prefixes, `compareAndSwap`); events live
+ * in the **native event log** tables `{table}_events` / `{table}_event_targets` (ADR 0005, see
  * {@link ./sql}). Every event-log write is one `batch(…, "write")` call — a
- * single round-trip that libSQL runs as one transaction.
+ * single round-trip that libSQL runs as one transaction. A failed connect or DDL
+ * is retried on the next call.
  *
  * Pass either a pre-constructed `client`, or `url` (+ optional `authToken`) to let
  * the adapter construct one lazily on first use. An optional `prefix` is **not**
@@ -32,17 +34,20 @@
  * @module
  */
 
-import { requirePeer } from "./contract.ts";
+import type { CompareAndSwapKvStorage } from "@xtandard/kit/storage";
+import type * as kit from "@xtandard/kit/storage/libsql";
+import {
+  libsqlConnection,
+  libsqlExecutor,
+  sqliteKvSchema,
+  sqliteKvStorage,
+} from "@xtandard/kit/storage/libsql/internals";
 import type { EventLogStorage } from "./contract.ts";
 import { createSqliteEventLog, type SqliteExecutor } from "./sqlite-event-log.ts";
 import { assertSafeIdentifier, eventLogDdl } from "./sql.ts";
 
 /** Options for {@link createLibsqlStorage}. */
-export interface LibsqlStorageOptions {
-  /** libSQL connection URL (`libsql://…`, `https://…`, `file:…`, `:memory:`). Used when no `client`. */
-  url?: string;
-  /** Turso auth token for remote databases. */
-  authToken?: string;
+export interface LibsqlStorageOptions extends Omit<kit.LibsqlStorageOptions, "client"> {
   /** A pre-constructed `@libsql/client` client to use instead of connecting. */
   client?: LibsqlClientLike;
   /**
@@ -52,8 +57,11 @@ export interface LibsqlStorageOptions {
   table?: string;
 }
 
-/** A storage backed by libSQL/Turso with the native {@link EventLogStorage}, plus `close()`. */
-export interface LibsqlAuditStorage extends EventLogStorage {
+/**
+ * A storage backed by libSQL/Turso with the native {@link EventLogStorage} and
+ * `compareAndSwap`, plus `close()`.
+ */
+export interface LibsqlAuditStorage extends EventLogStorage, CompareAndSwapKvStorage {
   /** Close the client if this adapter created it; no-op for a borrowed instance. */
   close(): void;
 }
@@ -64,8 +72,11 @@ export interface LibsqlResultLike {
   rowsAffected?: number;
 }
 
-/** Minimal structural view of the `@libsql/client` surface this adapter uses. */
-export interface LibsqlClientLike {
+/**
+ * Minimal structural view of the `@libsql/client` surface this adapter uses:
+ * the kit's (`execute`, `close`) plus `batch`, which the event log needs.
+ */
+export interface LibsqlClientLike extends kit.LibsqlClientLike {
   execute(stmt: string | { sql: string; args: unknown[] }): Promise<LibsqlResultLike>;
   /** Run statements in one transaction (`"write"` mode); resolves to one result per statement. */
   batch(
@@ -74,8 +85,6 @@ export interface LibsqlClientLike {
   ): Promise<LibsqlResultLike[]>;
   close(): void;
 }
-
-const escapeLike = (prefix: string): string => prefix.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /**
  * Create a libSQL/Turso-backed {@link LibsqlAuditStorage}. The tables are
@@ -95,92 +104,26 @@ const escapeLike = (prefix: string): string => prefix.replace(/[\\%_]/g, (c) => 
  */
 export function createLibsqlStorage(options: LibsqlStorageOptions): LibsqlAuditStorage {
   const table = assertSafeIdentifier(options.table ?? "xtandard_audit");
-
-  const ownsClient = !options.client;
-  let client: LibsqlClientLike | undefined = options.client;
-  let ready: Promise<LibsqlClientLike> | undefined;
-
-  /** Resolve a connected client and ensure the tables exist (once). */
-  function getClient(): Promise<LibsqlClientLike> {
-    ready ??= (async () => {
-      if (!client) {
-        if (!options.url) {
-          throw new Error("createLibsqlStorage requires either a `client` or a `url`");
-        }
-        let createClient: (opts: { url: string; authToken?: string }) => LibsqlClientLike;
-        try {
-          // Non-literal specifier so the type-checker doesn't require the optional
-          // peer to be installed at build time (it's resolved at runtime only).
-          const specifier: string = "@libsql/client";
-          ({ createClient } = (await import(specifier)) as {
-            createClient: (opts: { url: string; authToken?: string }) => LibsqlClientLike;
-          });
-        } catch {
-          requirePeer("@libsql/client", "storage/libsql");
-        }
-        client = createClient({ url: options.url, authToken: options.authToken });
-      }
-      await client.execute(
-        `CREATE TABLE IF NOT EXISTS ${table} (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-      );
-      for (const ddl of eventLogDdl("sqlite", table)) await client.execute(ddl);
-      return client;
-    })();
-    return ready;
-  }
-
-  let executor: Promise<SqliteExecutor> | undefined;
-  const exec = () =>
-    (executor ??= getClient().then(
-      (c): SqliteExecutor => ({
-        async all(sql, args) {
-          return (await c.execute({ sql, args })).rows;
-        },
-        async atomic(statements) {
-          const results = await c.batch(statements, "write");
-          return results.map((r) => r.rowsAffected ?? 0);
-        },
-      }),
-    ));
+  const connection = libsqlConnection(
+    options,
+    [sqliteKvSchema(table), ...eventLogDdl("sqlite", table)],
+    options.subpath ?? "@xtandard/audit/storage/libsql",
+  );
+  const exec = async (): Promise<SqliteExecutor> => {
+    // A client created from `url` is a real `@libsql/client` client, which has `batch`.
+    const client = (await connection.get()) as LibsqlClientLike;
+    return {
+      ...libsqlExecutor(client),
+      async atomic(statements) {
+        const results = await client.batch(statements, "write");
+        return results.map((r) => r.rowsAffected ?? 0);
+      },
+    };
+  };
 
   return {
-    async getItem<T>(key: string): Promise<T | null> {
-      const c = await getClient();
-      const { rows } = await c.execute({
-        sql: `SELECT value FROM ${table} WHERE key = ?`,
-        args: [key],
-      });
-      const value = rows[0]?.value;
-      return typeof value === "string" ? (JSON.parse(value) as T) : null;
-    },
-
-    async setItem<T>(key: string, value: T): Promise<void> {
-      const c = await getClient();
-      await c.execute({
-        sql: `INSERT INTO ${table} (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-        args: [key, JSON.stringify(value)],
-      });
-    },
-
-    async removeItem(key: string): Promise<void> {
-      const c = await getClient();
-      await c.execute({ sql: `DELETE FROM ${table} WHERE key = ?`, args: [key] });
-    },
-
-    async getKeys(prefix: string): Promise<string[]> {
-      const c = await getClient();
-      const { rows } = await c.execute({
-        sql: `SELECT key FROM ${table} WHERE key LIKE ? ESCAPE '\\'`,
-        args: [`${escapeLike(prefix)}%`],
-      });
-      // SQLite LIKE folds ASCII case: keep only exact prefix matches.
-      return rows.map((r) => String(r.key)).filter((key) => key.startsWith(prefix));
-    },
-
+    ...sqliteKvStorage(table, exec),
     ...createSqliteEventLog(exec, table),
-
-    close(): void {
-      if (ownsClient) client?.close();
-    },
+    close: connection.close,
   } satisfies LibsqlAuditStorage;
 }

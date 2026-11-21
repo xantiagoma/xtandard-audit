@@ -37,6 +37,7 @@ describe.skipIf(!available)("createMongoStorage (live)", () => {
   // Fresh collections per contract test, so the shared suite starts empty.
   let counter = 0;
   const makers: MongoAuditStorage[] = [];
+  const collections = new WeakMap<object, string>();
   const make = () => {
     const n = counter++;
     const storage = createMongoStorage({
@@ -46,28 +47,35 @@ describe.skipIf(!available)("createMongoStorage (live)", () => {
       eventsCollectionName: `events_${n}`,
     });
     makers.push(storage);
+    collections.set(storage, `kv_${n}`);
     return storage;
   };
 
-  runStorageContractTests("mongodb", make, { expectNativeEventLog: true, timeout: 20_000 });
+  runStorageContractTests("mongodb", make, {
+    t: { describe, test, expect },
+    capabilities: { compareAndSwap: true, watch: false },
+    expectNativeEventLog: true,
+    timeout: 20_000,
+    seedLegacy: async (storage, key, raw) => {
+      // A document written by an earlier release: fields in insertion order.
+      const client = new MongoClient(MONGO_URL);
+      try {
+        await client.connect();
+        await client
+          .db(dbName)
+          .collection<{ _id: string; value: unknown }>(collections.get(storage)!)
+          .insertOne({ _id: key, value: JSON.parse(raw) });
+      } finally {
+        await client.close();
+      }
+    },
+  });
 
   describe("mongodb specifics", () => {
     let storage: MongoAuditStorage;
 
     beforeAll(() => {
       storage = make();
-    });
-
-    test("round-trips a nested object value directly (no JSON wrapping)", async () => {
-      const value = { action: "invoice.paid", tags: ["a", "b"], nested: { x: { y: 1 } } };
-      await storage.setItem("aud/actions/invoice.paid", value);
-      expect(await storage.getItem("aud/actions/invoice.paid")).toEqual(value);
-    });
-
-    test("getKeys isolates by prefix and escapes regex metacharacters", async () => {
-      await storage.setItem("aud/t/a.c/head", { v: 1 });
-      await storage.setItem("aud/t/abc/head", { v: 2 });
-      expect(await storage.getKeys("aud/t/a.c/")).toEqual(["aud/t/a.c/head"]);
     });
 
     test("creates the event indexes", async () => {
@@ -287,7 +295,7 @@ describe("createMongoStorage shape", () => {
   test("throws a clear error when neither client nor url is supplied", async () => {
     const storage = createMongoStorage({});
     await expect(storage.getItem("aud/t/acme/head")).rejects.toThrow(
-      /requires either a "client" or a "url"/,
+      /requires either a `client` or a `url`/,
     );
   });
 

@@ -25,7 +25,7 @@
  * @module
  */
 
-import type { BuildColumns } from "drizzle-orm";
+import { sqliteKvTable, type SqliteKvColumns } from "@xtandard/kit/drizzle/sqlite";
 import {
   index,
   integer,
@@ -51,7 +51,7 @@ export type {
 } from "./table.ts";
 
 /** The `self` passed to an {@link SqliteAuditTableOptions.extraIndexes} callback. */
-type SqliteAuditColumns = BuildColumns<string, Record<string, SQLiteColumnBuilderBase>, "sqlite">;
+type SqliteAuditColumns = SqliteKvColumns;
 
 /** Options for {@link sqliteAuditTable}. */
 export interface SqliteAuditTableOptions {
@@ -70,17 +70,7 @@ export function sqliteAuditTable(
   name = "xtandard_audit",
   opts?: SqliteAuditTableOptions,
 ): DrizzleKvTable {
-  const columns = {
-    key: text("key").primaryKey(),
-    value: text("value", { mode: "json" }).notNull(),
-    ...opts?.extraColumns?.(),
-  };
-  // Cast to the exact `self` type Drizzle infers from `columns` — the public
-  // `extraIndexes` type uses a generic column map, which is a supertype.
-  const extraConfig = opts?.extraIndexes as
-    | ((self: BuildColumns<string, typeof columns, "sqlite">) => SQLiteTableExtraConfigValue[])
-    | undefined;
-  return sqliteTable(name, columns, extraConfig);
+  return sqliteKvTable(name, opts);
 }
 
 /**

@@ -16,14 +16,25 @@ import { eventLogDdl } from "../src/storage/sql.ts";
 import { runStorageContractTests } from "./storage-contract.ts";
 
 /** A fresh in-memory database with the tables a migration would create. */
+const databases = new WeakMap<object, Database>();
 function fresh() {
   const sqlite = new Database(":memory:");
   sqlite.run(`CREATE TABLE audit (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
   for (const ddl of eventLogDdl("sqlite", "audit")) sqlite.run(ddl);
-  return createDrizzleStorage({ db: drizzle(sqlite), ...sqliteAuditTables("audit") });
+  const storage = createDrizzleStorage({ db: drizzle(sqlite), ...sqliteAuditTables("audit") });
+  databases.set(storage, sqlite);
+  return storage;
 }
 
-runStorageContractTests("drizzle (sqlite/bun-sqlite)", fresh, { expectNativeEventLog: true });
+runStorageContractTests("drizzle (sqlite/bun-sqlite)", fresh, {
+  t: { describe, test, expect },
+  capabilities: { compareAndSwap: true, watch: false },
+  expectNativeEventLog: true,
+  seedLegacy: async (storage, key, raw) => {
+    // A value written by an earlier release: JSON text with keys in insertion order.
+    databases.get(storage)!.run("INSERT INTO audit (key, value) VALUES (?, ?)", [key, raw]);
+  },
+});
 
 describe("createDrizzleStorage (sqlite/bun-sqlite)", () => {
   test("action families are case-sensitive (GLOB, not LIKE)", async () => {

@@ -11,8 +11,23 @@ import { ChainConflictError } from "../src/storage/contract.ts";
 import { createSqliteStorage, type SqliteAuditStorage } from "../src/storage/sqlite.ts";
 import { runStorageContractTests } from "./storage-contract.ts";
 
-runStorageContractTests("sqlite (bun:sqlite)", () => createSqliteStorage({ table: "kv" }), {
+const databases = new WeakMap<object, Database>();
+const fresh = () => {
+  const database = new Database(":memory:");
+  const storage = createSqliteStorage({ database, table: "kv" });
+  databases.set(storage, database);
+  return storage;
+};
+
+runStorageContractTests("sqlite (bun:sqlite)", fresh, {
+  t: { describe, test, expect },
+  capabilities: { compareAndSwap: true, watch: false },
   expectNativeEventLog: true,
+  seedLegacy: async (storage, key, raw) => {
+    // A value written by an earlier release: JSON text with keys in insertion order.
+    await storage.getKeys(""); // run the DDL
+    databases.get(storage)!.run("INSERT INTO kv (key, value) VALUES (?, ?)", [key, raw]);
+  },
 });
 
 let storage: SqliteAuditStorage;
@@ -25,37 +40,9 @@ afterEach(() => {
 });
 
 describe("sqlite storage", () => {
-  test("round-trips objects and returns null for missing keys", async () => {
-    expect(await storage.getItem("nope")).toBeNull();
-    await storage.setItem("aud/actions/invoice.paid", { name: "invoice.paid", tags: ["a"] });
-    expect(await storage.getItem("aud/actions/invoice.paid")).toEqual({
-      name: "invoice.paid",
-      tags: ["a"],
-    });
-  });
-
-  test("setItem overwrites", async () => {
-    await storage.setItem("k", "one");
-    await storage.setItem("k", "two");
-    expect(await storage.getItem("k")).toBe("two");
-  });
-
-  test("removeItem deletes", async () => {
-    await storage.setItem("k", 1);
-    await storage.removeItem("k");
-    expect(await storage.getItem("k")).toBeNull();
-  });
-
-  test("getKeys filters by prefix and escapes LIKE wildcards", async () => {
-    await storage.setItem("aud/t/a_1/x", 1);
-    await storage.setItem("aud/t/a_1/y", 2);
-    await storage.setItem("aud/t/aX1/z", 3);
-    expect((await storage.getKeys("aud/t/a_1/")).sort()).toEqual(["aud/t/a_1/x", "aud/t/a_1/y"]);
-  });
-
-  test("creates the KV and event-log tables", () => {
+  test("creates the KV and event-log tables on first use", async () => {
     const db = new Database(":memory:");
-    createSqliteStorage({ database: db, table: "audit" });
+    await createSqliteStorage({ database: db, table: "audit" }).countEvents();
     const names = db
       .query(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
       .all() as Array<{ name: string }>;

@@ -2,49 +2,29 @@
  * In-memory storage adapter. Zero deps. Useful for tests, dev, and the demo.
  * Values are deep-cloned on write and read so callers cannot mutate stored
  * state by reference. Implements every optional capability: `watch`,
- * `compareAndSwap`, and the native event log (ADR 0005).
+ * `compareAndSwap` (the `@xtandard/kit/storage/memory` driver), and the native
+ * event log (ADR 0005).
  *
  * @module
  */
 
+import type { CompareAndSwapKvStorage, WatchableKvStorage } from "@xtandard/kit/storage";
+import * as kit from "@xtandard/kit/storage/memory";
 import { applyQuery, type NormalizedQuery } from "../query.ts";
 import type { AuditEvent } from "../schema.ts";
-import {
-  ChainConflictError,
-  type CompareAndSwapAuditStorage,
-  type EventLogStorage,
-  type StorageChangeEvent,
-  type WatchableAuditStorage,
-  type AuditStorage,
-} from "./contract.ts";
+import { ChainConflictError, type EventLogStorage } from "./contract.ts";
+import type { EventLogMethods } from "./sql.ts";
 
-/** Options for {@link createMemoryStorage}. */
-export interface MemoryStorageOptions {
-  /** Optional seed data (key → value). */
-  initial?: Record<string, unknown>;
-}
+/** Options for {@link createMemoryStorage}: optional seed data (key → value) and an `onWrite` hook. */
+export type MemoryStorageOptions = kit.MemoryStorageOptions;
 
 /** The full capability set the memory adapter implements. */
-export type MemoryAuditStorage = WatchableAuditStorage &
-  CompareAndSwapAuditStorage &
-  EventLogStorage;
+export type MemoryAuditStorage = WatchableKvStorage & CompareAndSwapKvStorage & EventLogStorage;
 
 const clone = <T>(value: T): T => (value === undefined ? value : (structuredClone(value) as T));
 
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  const aKeys = Object.keys(a as object);
-  const bKeys = Object.keys(b as object);
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((k) =>
-    deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
-  );
-}
-
 /**
- * Create an in-memory {@link AuditStorage} with every optional capability.
+ * Create an in-memory {@link MemoryAuditStorage} with every optional capability.
  * `watch` fires callbacks on the next microtask after a write/remove;
  * `compareAndSwap` compares deep equality; events live in per-tenant arrays
  * ordered by seq (single-threaded JS makes append-with-conflict-check atomic
@@ -58,60 +38,16 @@ function deepEqual(a: unknown, b: unknown): boolean {
  * ```
  */
 export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryAuditStorage {
-  const map = new Map<string, unknown>();
-  if (options.initial) {
-    for (const [k, val] of Object.entries(options.initial)) map.set(k, clone(val));
-  }
+  return { ...kit.createMemoryStorage(options), ...createMemoryEventLog() };
+}
 
-  // Native event log: per-tenant arrays ordered by seq, plus an id → seq index.
+/** The native event log in per-tenant arrays ordered by seq. */
+function createMemoryEventLog(): EventLogMethods {
   const logs = new Map<string, AuditEvent[]>();
   const ids = new Map<string, number>();
-  // Highest pruned seq per tenant, so appends after a full prune continue the chain.
   const baseSeqs = new Map<string, number>();
 
-  const watchers = new Set<{ prefix: string; cb: (event: StorageChangeEvent) => void }>();
-  const notify = (event: StorageChangeEvent) => {
-    for (const w of watchers) {
-      if (event.key.startsWith(w.prefix)) queueMicrotask(() => w.cb(event));
-    }
-  };
-
-  const set = (key: string, value: unknown) => {
-    map.set(key, clone(value));
-    notify({ type: "update", key });
-  };
-  const remove = (key: string) => {
-    if (map.delete(key)) notify({ type: "remove", key });
-  };
-
   return {
-    async getItem<T>(key: string): Promise<T | null> {
-      return map.has(key) ? clone(map.get(key) as T) : null;
-    },
-    async setItem<T>(key: string, value: T): Promise<void> {
-      set(key, value);
-    },
-    async removeItem(key: string): Promise<void> {
-      remove(key);
-    },
-    async getKeys(prefix: string): Promise<string[]> {
-      const out: string[] = [];
-      for (const k of map.keys()) if (k.startsWith(prefix)) out.push(k);
-      return out;
-    },
-    async watch(prefix, cb): Promise<() => void> {
-      const entry = { prefix, cb };
-      watchers.add(entry);
-      return () => {
-        watchers.delete(entry);
-      };
-    },
-    async compareAndSwap<T>(input: { key: string; expected: T | null; next: T }): Promise<boolean> {
-      const current = map.has(input.key) ? map.get(input.key) : null;
-      if (!deepEqual(current, input.expected)) return false;
-      set(input.key, input.next);
-      return true;
-    },
     async appendEvents(tenant, events, { expectedSeq }): Promise<void> {
       const list = logs.get(tenant) ?? [];
       const last = list[list.length - 1]?.seq ?? baseSeqs.get(tenant) ?? 0;
@@ -172,5 +108,5 @@ export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryA
     async listEventTenants(): Promise<string[]> {
       return [...logs.keys()].filter((t) => (logs.get(t) ?? []).length > 0 || baseSeqs.has(t));
     },
-  } satisfies AuditStorage & MemoryAuditStorage;
+  };
 }
