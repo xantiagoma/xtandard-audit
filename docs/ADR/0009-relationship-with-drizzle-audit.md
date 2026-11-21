@@ -21,7 +21,7 @@ business actions** — storage drivers, query, viewer, export, verification, str
    capture layer (what changed in which row); `@xtandard/audit` is a control plane (who did what to
    which resource in which tenant, provably).
 2. `@xtandard/audit/drizzle-audit` ships a **bridge**: `createDrizzleAuditStorage(core, { tenant,
-   action, actor, include })` returns an object that structurally satisfies drizzle-audit's
+action, actor, include })` returns an object that structurally satisfies drizzle-audit's
    `AuditStorage`, mapping each `AuditEntry` to an audit event (`action` = `db.<table>.<op>` or the
    custom action, `targets` = `[{ type: table, id: rowId }]`, `actor.id` = `userId`,
    `metadata` = `{ changes, oldData, newData }`). Typed structurally, so drizzle-audit is not a peer.
