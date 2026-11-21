@@ -444,13 +444,21 @@
         "default": "./dist/entry-hono.cjs"
       }
     },
+    "./react": {
+      "import": {
+        "types": "./dist/types-react/react.d.ts",
+        "default": "./dist/react.js"
+      }
+    },
+    "./react/styles.css": "./dist/react.css",
+    "./ui/*": "./dist/ui/*",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "bun run build:lib && bun run build:elysia2-types",
+    "build": "bun run build:lib && bun run build:elysia2-types && bun run build:ui && bun run build:react",
     "build:lib": "vp pack",
     "build:elysia2-types": "tsc -p tsconfig.elysia2.build.json && bun scripts/fix-elysia2-types.ts",
     "test": "vp test run",
@@ -462,6 +470,10 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.elysia2.json",
     "check": "vp lint && vp fmt --check && bun run typecheck",
     "prepare": "husky || true",
+    "build:ui": "vite build --config vite.ui.config.ts",
+    "dev:ui": "vite --config vite.ui.config.ts",
+    "test:e2e": "playwright test",
+    "build:react": "vite build --config vite.react.config.ts && bun scripts/scope-embed-css.ts && tsc -p tsconfig.react.json",
     "docs:dev": "cd site && bun install && bun run dev",
     "docs:build": "cd site && bun install && bun run build",
     "docs:preview": "cd site && bun run preview",
