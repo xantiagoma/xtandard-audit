@@ -30,12 +30,50 @@ export const GENESIS_HASH = `sha256:${"0".repeat(64)}`;
 
 const encoder = new TextEncoder();
 
-function toHex(bytes: ArrayBuffer): string {
-  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
+const HEX = Array.from({ length: 256 }, (_, i) => (i < 16 ? "0" : "") + i.toString(16));
+
+function toHex(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) out += HEX[bytes[i]!];
+  return out;
 }
+
+type SyncSha256 = (text: string) => string;
+
+/**
+ * A synchronous native SHA-256 when the runtime has one — `Bun.CryptoHasher`,
+ * or Node's built-in `crypto` via `process.getBuiltinModule` — because Web
+ * Crypto's `digest` is asynchronous and, in Bun, hops to a thread pool per
+ * call (two orders of magnitude slower for the many small hashes a chain
+ * needs). Browsers and Workers fall back to Web Crypto. No imports: this
+ * module stays dependency-free.
+ */
+const syncSha256: SyncSha256 | null = (() => {
+  const g = globalThis as unknown as {
+    Bun?: {
+      CryptoHasher: new (alg: string) => { update(s: string): { digest(enc: "hex"): string } };
+    };
+    process?: { getBuiltinModule?: (id: string) => unknown };
+  };
+  if (g.Bun?.CryptoHasher) {
+    const Hasher = g.Bun.CryptoHasher;
+    return (text) => new Hasher("sha256").update(text).digest("hex");
+  }
+  const nodeCrypto = g.process?.getBuiltinModule?.("node:crypto") as
+    | {
+        createHash(alg: string): { update(s: string, enc: "utf8"): { digest(enc: "hex"): string } };
+      }
+    | undefined;
+  if (nodeCrypto?.createHash) {
+    return (text) => nodeCrypto.createHash("sha256").update(text, "utf8").digest("hex");
+  }
+  return null;
+})();
 
 /** `"sha256:" + hex(SHA-256(utf8(text)))`. */
 export async function sha256(text: string): Promise<string> {
+  if (syncSha256) return `sha256:${syncSha256(text)}`;
   return `sha256:${toHex(await crypto.subtle.digest("SHA-256", encoder.encode(text)))}`;
 }
 

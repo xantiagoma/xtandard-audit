@@ -661,25 +661,35 @@ export function createAuditCore<const A extends ActionMap = ActionMap>(
   const lastCheckpoint = new Map<string, { seq: number; at: number }>();
   const checkpointing = new Set<string>();
 
+  const recheck = new Set<string>();
+
   async function maybeAutoCheckpoint(tenant: string): Promise<void> {
-    if (!signer || !checkpointOpts || checkpointing.has(tenant)) return;
+    if (!signer || !checkpointOpts) return;
+    if (checkpointing.has(tenant)) {
+      // A check is already running; make it look again once it is done.
+      recheck.add(tenant);
+      return;
+    }
     checkpointing.add(tenant);
     try {
-      let last = lastCheckpoint.get(tenant);
-      if (!last) {
-        const cps = (await listCheckpoints(tenant)).filter((c) => c.kind === "head");
-        const newest = cps[cps.length - 1];
-        last = newest ? { seq: newest.seq, at: Date.parse(newest.at) } : { seq: 0, at: 0 };
-        lastCheckpoint.set(tenant, last);
-      }
-      const head = await withTenantLock(tenant, async () => (await readHead(tenant)).head);
-      if (head.seq <= last.seq) return;
-      const dueByCount =
-        checkpointOpts.every !== undefined && head.seq - last.seq >= checkpointOpts.every;
-      const dueByTime =
-        checkpointOpts.interval !== undefined &&
-        now() - last.at >= durationToMs(checkpointOpts.interval);
-      if (dueByCount || dueByTime) await createCheckpoint(tenant, null);
+      do {
+        recheck.delete(tenant);
+        let last = lastCheckpoint.get(tenant);
+        if (!last) {
+          const cps = (await listCheckpoints(tenant)).filter((c) => c.kind === "head");
+          const newest = cps[cps.length - 1];
+          last = newest ? { seq: newest.seq, at: Date.parse(newest.at) } : { seq: 0, at: 0 };
+          lastCheckpoint.set(tenant, last);
+        }
+        const head = await withTenantLock(tenant, async () => (await readHead(tenant)).head);
+        if (head.seq <= last.seq) continue;
+        const dueByCount =
+          checkpointOpts.every !== undefined && head.seq - last.seq >= checkpointOpts.every;
+        const dueByTime =
+          checkpointOpts.interval !== undefined &&
+          now() - last.at >= durationToMs(checkpointOpts.interval);
+        if (dueByCount || dueByTime) await createCheckpoint(tenant, null);
+      } while (recheck.has(tenant));
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn(`[@xtandard/audit] automatic checkpoint for "${tenant}" failed:`, err);
@@ -1057,6 +1067,8 @@ export function createAuditCore<const A extends ActionMap = ActionMap>(
           { type: "events.exported", tenant, query, format, at: isoNow(now) },
           onHookError,
         );
+      // Exporting an unknown tenant must not create it.
+      if ((await readHead(tenant)).head.seq === 0) return;
       await recordInternal({
         tenant,
         action: "audit_log.exported",
