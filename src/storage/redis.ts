@@ -314,7 +314,8 @@ function buildRedisStorage(
           out.push(fromRedisKey(entry));
         }
       }
-      return out;
+      // Belt and braces on top of the escaped MATCH glob: exact string-prefix semantics.
+      return out.filter((key) => key.startsWith(prefix));
     },
 
     async compareAndSwap<T>(input: { key: string; expected: T | null; next: T }): Promise<boolean> {
