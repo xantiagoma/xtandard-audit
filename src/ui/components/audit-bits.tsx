@@ -3,10 +3,10 @@ import { Dialog } from "@base-ui-components/react/dialog";
 import { Check, Copy, X } from "lucide-react";
 import type { AuditEvent } from "../types.ts";
 import { outcomeTone, streamHealthTone, type StreamHealth } from "../lib/format.ts";
-import { cn } from "../lib/utils.ts";
-import { portalContainerRef } from "../lib/portal-container.ts";
-import { Button } from "./ui-bits.tsx";
-import { useToast } from "./Toast.tsx";
+import { cn } from "@xtandard/kit/ui";
+import { portalContainerRef } from "@xtandard/kit/ui";
+import { Button } from "@xtandard/kit/ui";
+import { useToast } from "@xtandard/kit/ui";
 
 /* ─── Spinner ───────────────────────────────────────────────────────────────── */
 

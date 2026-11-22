@@ -13,13 +13,15 @@
  * @module
  */
 
+import { VERSION } from "../version.ts";
+
 /** Options for {@link buildOpenApiDocument}. */
 export interface OpenApiOptions {
   /** Mount prefix used in the `servers` url (e.g. `"/audit"`). */
   basePath?: string;
   /** Document title. */
   title?: string;
-  /** Document version (defaults to the package's API version). */
+  /** Document version (defaults to the package version). */
   version?: string;
 }
 
@@ -396,7 +398,7 @@ export function buildOpenApiDocument(options: OpenApiOptions = {}): Record<strin
     openapi: "3.1.0",
     info: {
       title: options.title ?? "@xtandard/audit API",
-      version: options.version ?? "0.1.0",
+      version: options.version ?? VERSION,
       description:
         "Control-plane API for @xtandard/audit: browse, record, export and verify per-tenant tamper-evident audit logs; manage checkpoints, retention, the action catalog and SIEM streams. Portal tokens (Authorization: Bearer audpt_…) hit the same surface scoped to one tenant and an optional view filter.",
     },

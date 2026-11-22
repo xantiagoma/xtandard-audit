@@ -1,16 +1,15 @@
 /**
- * The CLI builds its storage from `STORAGE_DRIVER` by dynamically importing
- * the driver's subpath entry. Drivers whose entry is not in this checkout (or
- * whose service is not reachable locally) are skipped — the suite stays green
- * while storage drivers land independently.
+ * The CLI builds its storage from `STORAGE_DRIVER` through its own registry of
+ * the audit drivers (so the native event log and the audit defaults reach the
+ * CLI). Drivers whose service is not reachable locally are skipped.
  */
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
 import { buildStorage, CLI_DRIVERS } from "../src/cli.ts";
+import { hasEventLog } from "../src/storage/contract.ts";
 
 const ENV = [
   "STORAGE_DRIVER",
@@ -48,9 +47,6 @@ const installed = (pkg: string) => {
   }
 };
 
-const hasEntry = (driver: string) =>
-  existsSync(fileURLToPath(new URL(`../src/entry-storage-${driver}.ts`, import.meta.url)));
-
 /** Env each driver needs; `null` = cannot run here (no service / wrong runtime). */
 const driverEnv = (driver: string, dir: string): Record<string, string> | null => {
   switch (driver) {
@@ -73,20 +69,27 @@ const driverEnv = (driver: string, dir: string): Record<string, string> | null =
 
 describe("cli storage drivers", () => {
   for (const driver of CLI_DRIVERS) {
-    const runnable = hasEntry(driver) && driverEnv(driver, "") !== null;
-    test.skipIf(!runnable)(`builds the ${driver} driver from env`, async () => {
-      process.env.STORAGE_DRIVER = driver;
-      Object.assign(process.env, driverEnv(driver, dir));
-      const storage = await buildStorage();
-      await storage.setItem("aud/cli-probe", { ok: true });
-      expect(await storage.getItem("aud/cli-probe")).toEqual({ ok: true });
-      await storage.removeItem("aud/cli-probe");
-      await (storage as { close?: () => Promise<void> }).close?.();
-    });
-
-    test.skipIf(hasEntry(driver))(`reports the ${driver} driver as unavailable`, async () => {
-      process.env.STORAGE_DRIVER = driver;
-      await expect(buildStorage()).rejects.toThrow(`missing @xtandard/audit/storage/${driver}`);
-    });
+    test.skipIf(driverEnv(driver, "") === null)(
+      `builds the ${driver} driver from env`,
+      async () => {
+        process.env.STORAGE_DRIVER = driver;
+        Object.assign(process.env, driverEnv(driver, dir));
+        const storage = await buildStorage();
+        await storage.setItem("aud/cli-probe", { ok: true });
+        expect(await storage.getItem("aud/cli-probe")).toEqual({ ok: true });
+        await storage.removeItem("aud/cli-probe");
+        await (storage as { close?: () => Promise<void> }).close?.();
+      },
+    );
   }
+
+  test("the memory driver is audit's: it carries the native event log", async () => {
+    process.env.STORAGE_DRIVER = "memory";
+    expect(hasEventLog(await buildStorage())).toBe(true);
+  });
+
+  test("an unknown driver is an error, not a silent file store", async () => {
+    process.env.STORAGE_DRIVER = "unstorage";
+    await expect(buildStorage()).rejects.toThrow(/Unknown STORAGE_DRIVER "unstorage"/);
+  });
 });

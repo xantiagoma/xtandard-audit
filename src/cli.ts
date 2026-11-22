@@ -7,17 +7,30 @@
  * `query`, `export`, `verify` (a bundle offline, or a tenant in storage),
  * `prune`, `checkpoint`, `keygen`, `tenants`, `actions`.
  *
- * Storage drivers and sinks are loaded lazily by **dynamic import of their
- * subpath entries** (`entry-storage-<driver>`, `entry-sinks-<kind>`) next to
- * this module, so the CLI only pulls the peer dependency of the driver you
- * pick — and a driver that is not part of a build is a clear runtime error,
- * not a bundling failure.
+ * Storage drivers are loaded lazily (one dynamic import per driver) and sinks
+ * by **dynamic import of their subpath entries** (`entry-sinks-<kind>`) next
+ * to this module, so the CLI only pulls the peer dependency of the driver you
+ * pick. Env reading, argv parsing, auth and storage from env, and the server
+ * come from `@xtandard/kit/cli`.
  *
  * @module
  */
 
-import type { AuthProvider } from "./auth/contract.ts";
-import type { AuthorizationProvider } from "./authorization/contract.ts";
+import {
+  buildAuthFromEnv,
+  describeStorage as kitDescribeStorage,
+  env,
+  isMainModule,
+  parseArgs as kitParseArgs,
+  pkgVersion as kitPkgVersion,
+  serve,
+  storageFromEnv,
+  storageRegistryFrom,
+  type ParsedArgs,
+  type StorageRegistry,
+  type StorageRole,
+} from "@xtandard/kit/cli";
+import { AUDIT_ACTIONS, type AuditAction } from "./authorization/contract.ts";
 import { createAuditCore, type AuditCore, type RetentionOptions } from "./core.ts";
 import { durationToMs } from "./duration.ts";
 import {
@@ -42,7 +55,7 @@ import type { ActionMap } from "./standard-schema.ts";
 import type { AuditStorage } from "./storage/contract.ts";
 import type { AuditSink, StreamDefinition } from "./streams.ts";
 
-/** The storage drivers the CLI knows how to configure from env. */
+/** The storage drivers the CLI knows how to configure from env (an unknown `STORAGE_DRIVER` is an error). */
 export const CLI_DRIVERS = [
   "memory",
   "file",
@@ -52,11 +65,45 @@ export const CLI_DRIVERS = [
   "sqlite",
   "libsql",
 ] as const;
-type Driver = (typeof CLI_DRIVERS)[number];
 
-const env = (key: string, fallback = ""): string => process.env[key] ?? fallback;
+/**
+ * The storage role with the CLI's persisted defaults (ADR 0005): the locations
+ * and names every earlier CLI release used. `STORAGE_DRIVER` defaults to `file`.
+ * The env overrides are `STORAGE_PREFIX`, `STORAGE_PG_TABLE`, `MONGO_DB`,
+ * `STORAGE_MONGO_COLLECTION`, `STORAGE_SQLITE_PATH`, `STORAGE_SQLITE_TABLE`,
+ * `LIBSQL_URL` (or `STORAGE_LIBSQL_URL`) and `STORAGE_FILE_DIR`.
+ */
+const STORAGE_ROLE: StorageRole = {
+  name: "STORAGE",
+  defaults: {
+    driver: "file",
+    prefix: "xtandard:audit",
+    pgTable: "xtandard_audit",
+    mongoDb: "xtandard_audit",
+    mongoCollection: "audit",
+    sqlitePath: "./.audit/audit.sqlite",
+    sqliteTable: "xtandard_audit",
+    libsqlUrl: "file:./.audit/audit.db",
+    fileDir: "./.audit",
+  },
+};
 
-const isTruthy = (value: string): boolean => value === "1" || value.toLowerCase() === "true";
+/**
+ * The audit storage factories, so every CLI store carries the native event log
+ * (memory, sqlite, libsql, postgres, mongodb) and the audit defaults. Each
+ * driver module loads on first use; sqlite requires running the CLI under Bun
+ * (`bunx xtandard-audit …`).
+ */
+const STORAGE_DRIVERS = storageRegistryFrom({
+  memory: () => import("./storage/memory.ts"),
+  file: () => import("./storage/file.ts"),
+  redis: () => import("./storage/redis.ts"),
+  postgres: () => import("./storage/postgres.ts"),
+  mongodb: () => import("./storage/mongodb.ts"),
+  sqlite: () => import("./storage/sqlite.ts"),
+  libsql: () => import("./storage/libsql.ts"),
+}) as StorageRegistry<AuditStorage>;
+
 const isFalsy = (value: string): boolean => value === "0" || value.toLowerCase() === "false";
 
 const warn = (message: string): void => {
@@ -110,94 +157,9 @@ function pickFactory<T>(
   return candidates.length === 1 ? (candidates[0]![1] as (...args: unknown[]) => T) : null;
 }
 
-/** The storage driver named by `STORAGE_DRIVER` (CLI default: `file`). */
-function driverFromEnv(): Driver {
-  const raw = env("STORAGE_DRIVER", "file") || "file";
-  if (!(CLI_DRIVERS as readonly string[]).includes(raw)) {
-    throw new Error(`Unknown STORAGE_DRIVER "${raw}" (expected ${CLI_DRIVERS.join(" | ")})`);
-  }
-  return raw as Driver;
-}
-
-/** Driver → [entry module, factory export, options from env]. */
-function driverSpec(driver: Driver): [string, string, Record<string, unknown>] {
-  switch (driver) {
-    case "memory":
-      return ["entry-storage-memory", "createMemoryStorage", {}];
-    case "redis":
-      return [
-        "entry-storage-redis",
-        "createRedisStorage",
-        {
-          url: env("REDIS_URL", "redis://localhost:6379"),
-          prefix: env("STORAGE_PREFIX", "xtandard:audit"),
-        },
-      ];
-    case "postgres":
-      return [
-        "entry-storage-postgres",
-        "createPostgresStorage",
-        {
-          connectionString:
-            env("DATABASE_URL") || env("POSTGRES_URL", "postgres://localhost:5432/postgres"),
-          table: env("STORAGE_PG_TABLE", "xtandard_audit"),
-        },
-      ];
-    case "mongodb":
-      return [
-        "entry-storage-mongodb",
-        "createMongoStorage",
-        {
-          url: env("MONGO_URL", "mongodb://localhost:27017"),
-          dbName: env("MONGO_DB", "xtandard_audit"),
-          collectionName: env("STORAGE_MONGO_COLLECTION", "audit"),
-        },
-      ];
-    case "sqlite":
-      // Requires running the CLI under Bun (`bunx xtandard-audit …`).
-      return [
-        "entry-storage-sqlite",
-        "createSqliteStorage",
-        { path: env("STORAGE_SQLITE_PATH", "./.audit/audit.sqlite") },
-      ];
-    case "libsql": {
-      const authToken = env("LIBSQL_AUTH_TOKEN");
-      return [
-        "entry-storage-libsql",
-        "createLibsqlStorage",
-        {
-          url: env("LIBSQL_URL", "file:./.audit/audit.db"),
-          ...(authToken ? { authToken } : {}),
-        },
-      ];
-    }
-    case "file":
-      return [
-        "entry-storage-file",
-        "createFileStorage",
-        { dir: env("STORAGE_FILE_DIR", "./.audit") },
-      ];
-  }
-}
-
-/** Build the storage from env, importing the driver's subpath lazily. */
+/** Build the storage from env (`STORAGE_DRIVER`, default `file`), loading the driver lazily. */
 export async function buildStorage(): Promise<AuditStorage> {
-  const driver = driverFromEnv();
-  const [entry, factoryName, options] = driverSpec(driver);
-  let mod: Record<string, unknown>;
-  try {
-    mod = await importEntry(entry);
-  } catch (err) {
-    if (err instanceof MissingModuleError) {
-      throw new Error(
-        `Storage driver "${driver}" is not available (missing @xtandard/audit/storage/${driver})`,
-      );
-    }
-    throw err;
-  }
-  const factory = pickFactory<AuditStorage>(mod, factoryName, /^create\w*Storage$/);
-  if (!factory) throw new Error(`@xtandard/audit/storage/${driver} exports no ${factoryName}`);
-  return factory(options);
+  return storageFromEnv({ role: STORAGE_ROLE, drivers: STORAGE_DRIVERS, allowed: CLI_DRIVERS });
 }
 
 /**
@@ -206,18 +168,7 @@ export async function buildStorage(): Promise<AuditStorage> {
  * name (never the URL, which may carry credentials).
  */
 async function describeStorage(): Promise<string> {
-  const { resolve } = await import("node:path");
-  const driver = driverFromEnv();
-  switch (driver) {
-    case "file":
-      return `file → ${resolve(env("STORAGE_FILE_DIR", "./.audit"))}`;
-    case "sqlite":
-      return `sqlite → ${resolve(env("STORAGE_SQLITE_PATH", "./.audit/audit.sqlite"))}`;
-    case "memory":
-      return "memory (ephemeral — not persisted)";
-    default:
-      return driver;
-  }
+  return kitDescribeStorage(STORAGE_ROLE, { allowed: CLI_DRIVERS });
 }
 
 /** Parse a duration env like `"365d"`, warning and ignoring malformed values. */
@@ -320,119 +271,28 @@ export async function streamsFromEnv(): Promise<StreamDefinition[]> {
   return out;
 }
 
-/** `AUTH_MODE`, with an empty value meaning the default `none`. */
-const authModeFromEnv = (): string => process.env.AUTH_MODE || "none";
-
-/** Build the auth + authorization providers from env (mirrors the standalone app). */
-async function buildAuth(): Promise<{ auth: AuthProvider; authorization: AuthorizationProvider }> {
-  const mode = authModeFromEnv();
-  if (mode === "basic") {
-    const [{ basicAuth }, { rolesAuthorization }] = await Promise.all([
-      import("./auth/basic.ts"),
-      import("./authorization/roles.ts"),
-    ]);
-    const passwordHash = env("AUTH_PASSWORD_HASH");
-    const password = env("AUTH_PASSWORD");
-    if (!passwordHash && !password) {
-      warn("AUTH_MODE=basic but neither AUTH_PASSWORD_HASH nor AUTH_PASSWORD is set.");
-    }
-    return {
-      auth: basicAuth({
-        users: [
-          {
-            username: env("AUTH_USERNAME", "admin"),
-            ...(passwordHash ? { passwordHash } : {}),
-            ...(password ? { password } : {}),
-            roles: [env("AUTH_ROLE", "admin")],
-          },
-        ],
-      }),
-      authorization: rolesAuthorization({}),
-    };
-  }
-  if (mode !== "none") throw new Error(`Unknown AUTH_MODE "${mode}" (expected none or basic)`);
-  const [{ noAuth }, { noAuthorization }] = await Promise.all([
-    import("./auth/none.ts"),
-    import("./authorization/none.ts"),
-  ]);
-  return { auth: noAuth(), authorization: noAuthorization() };
-}
-
-type FetchHandler = (request: Request) => Response | Promise<Response>;
-
 /**
- * Serve a web-standard fetch handler under whatever runtime the CLI runs on:
- * `Bun.serve` under `bunx`, a `node:http` bridge under `npx`/Node (streaming
- * response bodies, so exports are never buffered). Resolves once listening.
+ * The auth + authorization providers from env (mirrors the standalone app):
+ * `AUTH_MODE=none` (default) or `basic` (one user, the admin/auditor/viewer
+ * roles); anything else is an error.
  */
-async function startServer(port: number, fetch: FetchHandler): Promise<void> {
-  const bun = (globalThis as { Bun?: { serve: (options: unknown) => unknown } }).Bun;
-  if (bun) {
-    bun.serve({ port, fetch });
-    return;
-  }
-  const { createServer } = await import("node:http");
-  const server = createServer((req, res) => {
-    void (async () => {
-      try {
-        const chunks: Buffer[] = [];
-        for await (const c of req) chunks.push(c as Buffer);
-        const method = req.method ?? "GET";
-        const headers = new Headers();
-        for (const [k, v] of Object.entries(req.headers)) {
-          if (v === undefined) continue;
-          headers.set(k, Array.isArray(v) ? v.join(", ") : v);
-        }
-        const host = req.headers.host ?? `localhost:${port}`;
-        const url = `http://${host}${req.url ?? "/"}`;
-        const hasBody = method !== "GET" && method !== "HEAD" && chunks.length > 0;
-        const request = new Request(url, {
-          method,
-          headers,
-          body: hasBody ? Buffer.concat(chunks) : undefined,
-        });
-        const response = await fetch(request);
-        res.statusCode = response.status;
-        response.headers.forEach((value, key) => res.setHeader(key, value));
-        if (response.body) {
-          for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-            res.write(chunk);
-          }
-        }
-        res.end();
-      } catch (err) {
-        res.statusCode = 500;
-        res.end(`Internal error: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    })();
+async function buildAuth() {
+  const { DEFAULT_ROLE_POLICY } = await import("./authorization/roles.ts");
+  return buildAuthFromEnv<AuditAction>({
+    realm: "xtandard-audit",
+    roles: { policy: DEFAULT_ROLE_POLICY, actions: AUDIT_ACTIONS },
+    name: "xtandard/audit",
   });
-  await new Promise<void>((resolve) => server.listen(port, resolve));
 }
 
-type Flags = Record<string, string | boolean>;
+type Flags = ParsedArgs["flags"];
 
-/** Minimal flag/value argv parser: `--key value`, `--key=value` and `--flag`. */
-export function parseArgs(argv: string[]): { _: string[]; flags: Flags } {
-  const _: string[] = [];
-  const flags: Flags = {};
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
-    if (a.startsWith("--")) {
-      const eq = a.indexOf("=");
-      if (eq > 0) {
-        flags[a.slice(2, eq)] = a.slice(eq + 1);
-        continue;
-      }
-      const key = a.slice(2);
-      const next = argv[i + 1];
-      if (next === undefined || next.startsWith("--")) flags[key] = true;
-      else {
-        flags[key] = next;
-        i++;
-      }
-    } else _.push(a);
-  }
-  return { _, flags };
+/** The flags that never take a value (`--json foo` keeps `foo` positional). */
+const BOOLEAN_FLAGS = ["help", "version", "json"];
+
+/** Flag/value argv parser: `--key value`, `--key=value`, `--flag`, `-h`/`-v`. */
+export function parseArgs(argv: string[]): ParsedArgs {
+  return kitParseArgs(argv, { boolean: BOOLEAN_FLAGS });
 }
 
 const str = (flags: Flags, key: string): string | undefined =>
@@ -486,19 +346,8 @@ async function makeCore(): Promise<AuditCore<ActionMap>> {
   });
 }
 
-/** Read this package's version from the nearest package.json (dist or src). */
-async function pkgVersion(): Promise<string> {
-  try {
-    const { readFile } = await import("node:fs/promises");
-    const { fileURLToPath } = await import("node:url");
-    const pkg = JSON.parse(
-      await readFile(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"),
-    ) as { version?: string };
-    return pkg.version ?? "unknown";
-  } catch {
-    return "unknown";
-  }
-}
+/** This package's version, from the nearest package.json (dist or src). */
+const pkgVersion = (): Promise<string> => kitPkgVersion(import.meta.url);
 
 /**
  * The `verify` exit code: `0` valid and anchored (genesis or a verified
@@ -896,83 +745,69 @@ export async function run(argv: string[]): Promise<number> {
         return 0;
       }
       case "serve": {
-        const port = Number(str(flags, "port") || env("PORT", "3000"));
-        const basePath = env("BASE_PATH", "");
-        const title = env("TITLE", "@xtandard/audit");
-        const logoUrl = env("LOGO_URL");
-        const readonly = isTruthy(env("READONLY"));
-        const authMode = authModeFromEnv();
+        const portFlag = str(flags, "port");
         const portalSecret = env("PORTAL_SECRET");
         const maintenanceRaw = env("MAINTENANCE_INTERVAL");
+        const runStreams = !isFalsy(env("STREAM_RUNNER", "1"));
+        let signer: AuditSigner | undefined;
+        let streams: StreamDefinition[] = [];
 
-        // Auth first: an unknown AUTH_MODE fails before any storage/stream connects.
-        const { auth, authorization } = await buildAuth();
-        const { createFetchHandler } = await import("./server/create-fetch-handler.ts");
-        const [storage, signer, streams] = await Promise.all([
-          buildStorage(),
-          signerFromEnv(),
-          streamsFromEnv(),
-        ]);
-
-        if (authMode === "none") {
-          warn("AUTH_MODE=none — do NOT expose this publicly without authentication.");
-        }
-
-        const retention = retentionFromEnv();
-        const panel = createFetchHandler({
-          storage,
-          basePath,
-          title,
-          ...(logoUrl ? { logoUrl } : {}),
-          readonly,
-          auth,
-          authorization,
-          ...(signer ? { signer } : {}),
-          ...(portalSecret ? { portal: { secret: portalSecret } } : {}),
-          ...(retention ? { retention } : {}),
-          ...(streams.length ? { streams } : {}),
-          ...(isFalsy(env("STREAM_RUNNER", "1")) ? { streamRunner: false as const } : {}),
-          maintenance:
-            maintenanceRaw && isFalsy(maintenanceRaw)
-              ? false
-              : { interval: (parseDurationEnv("MAINTENANCE_INTERVAL") ?? "1h") as AuditDuration },
-        });
-
-        const normalizedBase =
-          basePath && basePath !== "/"
-            ? basePath.startsWith("/")
-              ? basePath
-              : `/${basePath}`
-            : "";
-
-        const handler: FetchHandler = (request) => {
-          const url = new URL(request.url);
-          if (url.pathname === "/healthcheck" || url.pathname === `${normalizedBase}/healthcheck`) {
-            return new Response(JSON.stringify({ status: "ok", title }), {
-              headers: { "content-type": "application/json" },
+        return await serve({
+          name: "xtandard/audit",
+          ...(portFlag ? { port: Number(portFlag) } : {}),
+          buildPanel: async ({ basePath, title, logoUrl, readonly }) => {
+            // Auth first: an unknown AUTH_MODE fails before any storage/stream connects.
+            const { auth, authorization } = await buildAuth();
+            const { createFetchHandler } = await import("./server/create-fetch-handler.ts");
+            let storage: AuditStorage;
+            [storage, signer, streams] = await Promise.all([
+              buildStorage(),
+              signerFromEnv(),
+              streamsFromEnv(),
+            ]);
+            const retention = retentionFromEnv();
+            const panelTitle = title ?? "@xtandard/audit";
+            const panel = createFetchHandler({
+              storage,
+              basePath,
+              title: panelTitle,
+              ...(logoUrl ? { logoUrl } : {}),
+              readonly,
+              auth,
+              authorization,
+              ...(signer ? { signer } : {}),
+              ...(portalSecret ? { portal: { secret: portalSecret } } : {}),
+              ...(retention ? { retention } : {}),
+              ...(streams.length ? { streams } : {}),
+              ...(runStreams ? {} : { streamRunner: false as const }),
+              maintenance:
+                maintenanceRaw && isFalsy(maintenanceRaw)
+                  ? false
+                  : {
+                      interval: (parseDurationEnv("MAINTENANCE_INTERVAL") ?? "1h") as AuditDuration,
+                    },
             });
-          }
-          return panel.fetch(request);
-        };
-
-        process.stdout.write(`[xtandard/audit] storage: ${await describeStorage()}\n`);
-        process.stdout.write(
-          `[xtandard/audit] signer: ${signer ? `${signer.alg} (${signer.keyId})` : "none (no checkpoints)"}\n`,
-        );
-        process.stdout.write(
-          `[xtandard/audit] streams: ${
-            streams.length
-              ? `${streams.map((s) => s.name).join(", ")}${isFalsy(env("STREAM_RUNNER", "1")) ? " (not running here)" : ""}`
-              : "none"
-          }\n`,
-        );
-
-        await startServer(port, handler);
-        process.stdout.write(
-          `[xtandard/audit] listening on http://localhost:${port}${normalizedBase || "/"}\n`,
-        );
-        // The server owns the process now; never resolve so the bin doesn't exit.
-        return await new Promise<number>(() => {});
+            // The standalone healthcheck (`{ status, title }`) answers at the root too,
+            // in front of the panel's own `{basePath}/healthcheck`.
+            const healthy = new Set(["/healthcheck", `${basePath}/healthcheck`]);
+            return {
+              fetch: (request: Request) =>
+                healthy.has(new URL(request.url).pathname)
+                  ? Response.json({ status: "ok", title: panelTitle })
+                  : panel.fetch(request),
+              close: panel.close,
+            };
+          },
+          banner: async () => [
+            `storage: ${await describeStorage()}`,
+            `signer: ${signer ? `${signer.alg} (${signer.keyId})` : "none (no checkpoints)"}`,
+            `streams: ${
+              streams.length
+                ? `${streams.map((s) => s.name).join(", ")}${runStreams ? "" : " (not running here)"}`
+                : "none"
+            }`,
+          ],
+        });
       }
       default:
         process.stderr.write(`Unknown command: ${command}\n\n${helpText(await pkgVersion())}`);
@@ -984,7 +819,8 @@ export async function run(argv: string[]): Promise<number> {
   }
 }
 
-// `bun src/cli.ts <command>` (contributors); the published bin calls `run` itself.
-if ((import.meta as ImportMeta & { main?: boolean }).main) {
+// `bun src/cli.ts <command>` (contributors); the published bin calls `run` itself, and
+// importing this module (the bin, the standalone app, a test) never runs it.
+if (isMainModule({ url: import.meta.url })) {
   void run(process.argv.slice(2)).then((code) => process.exit(code));
 }

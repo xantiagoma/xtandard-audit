@@ -5,9 +5,9 @@ import type { ActionDefinition } from "../types.ts";
 import { AuditApiError } from "../types.ts";
 import type { ShellContext } from "../App.tsx";
 import { deleteAction, listActions, updateAction } from "../api.ts";
-import { useToast } from "../components/Toast.tsx";
-import { Button } from "../components/ui-bits.tsx";
-import { TextArea, TextInput } from "../components/primitives.tsx";
+import { useToast } from "@xtandard/kit/ui";
+import { Button } from "@xtandard/kit/ui";
+import { TextArea, TextInput } from "@xtandard/kit/ui";
 import {
   ConfirmDialog,
   EmptyCard,

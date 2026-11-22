@@ -460,7 +460,7 @@
   "scripts": {
     "build": "bun run build:lib && bun run build:elysia2-types && bun run build:ui && bun run build:react",
     "build:lib": "vp pack",
-    "build:elysia2-types": "tsc -p tsconfig.elysia2.build.json && bun scripts/fix-elysia2-types.ts",
+    "build:elysia2-types": "tsc -p tsconfig.elysia2.build.json && xtandard-kit fix-elysia2-types",
     "test": "vp test run",
     "test:coverage": "vp test run --coverage",
     "test:bun": "bun test ./test/*.bun.test.ts",
@@ -473,7 +473,7 @@
     "build:ui": "vite build --config vite.ui.config.ts",
     "dev:ui": "vite --config vite.ui.config.ts",
     "test:e2e": "playwright test",
-    "build:react": "vite build --config vite.react.config.ts && bun scripts/scope-embed-css.ts && tsc -p tsconfig.react.json",
+    "build:react": "vite build --config vite.react.config.ts && xtandard-kit scope-embed-css --scope xtandard-audit && tsc -p tsconfig.react.json",
     "docs:dev": "cd site && bun install && bun run dev",
     "docs:build": "cd site && bun install && bun run build",
     "docs:preview": "cd site && bun run preview",
@@ -496,6 +496,7 @@
     "brand:check": "sh scripts/brand-assets.sh --check"
   },
   "dependencies": {
+    "@xtandard/kit": "^0.1.1",
     "valibot": "^1.0.0",
     "wouter": "^3.10.0"
   },

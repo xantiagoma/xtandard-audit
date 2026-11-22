@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { AuditTenant } from "../types.ts";
 import type { ShellContext } from "../App.tsx";
 import { listCheckpoints, listTenants } from "../api.ts";
-import { Button } from "../components/ui-bits.tsx";
+import { Button } from "@xtandard/kit/ui";
 import { EmptyCard, LoadingRow, Mono, Page, PageHeader } from "../components/audit-bits.tsx";
 import { formatCount, formatDateTime, relativeTime, shortHash } from "../lib/format.ts";
 

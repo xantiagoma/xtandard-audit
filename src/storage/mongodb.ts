@@ -7,10 +7,12 @@
  * Two collections:
  *
  * - **KV** (`audit_kv` by default) — `{ _id: <key>, value: <any> }` documents
- *   for control data (catalog, chain heads, checkpoints, stream cursors). The
- *   storage key is the document `_id`; the value is stored directly as BSON.
- *   `getKeys(prefix)` matches `_id` against an anchored regular expression
- *   (`^<escaped prefix>`), projecting only `_id`.
+ *   for control data (catalog, chain heads, checkpoints, stream cursors), the
+ *   `@xtandard/kit/storage/mongodb` driver: values are stored as BSON with
+ *   sorted fields, `getKeys(prefix)` matches `_id` against an anchored regular
+ *   expression plus an exact `startsWith`, and `compareAndSwap` is one
+ *   `updateOne`. The events collection shares its connection
+ *   (`mongoConnection`).
  * - **Events** (`audit_events` by default) — the native
  *   {@link EventLogStorage} capability (ADR 0005): one document per event (the
  *   event itself plus a denormalized, lower-cased `search` field), with a
@@ -43,26 +45,27 @@
  * @module
  */
 
-import type { Collection, Document, Filter, MongoClient } from "mongodb";
+import type { CompareAndSwapKvStorage } from "@xtandard/kit/storage";
+import { escapeRegex } from "@xtandard/kit/storage";
+import type * as kit from "@xtandard/kit/storage/mongodb";
+import {
+  isDuplicateKey,
+  mongoConnection,
+  mongoKvStorage,
+  type KvDocument,
+} from "@xtandard/kit/storage/mongodb/internals";
+import type { Collection, Filter } from "mongodb";
 import { searchText, type NormalizedQuery } from "../query.ts";
 import type { AuditEvent } from "../schema.ts";
-import { ChainConflictError, requirePeer } from "./contract.ts";
+import { ChainConflictError } from "./contract.ts";
 import type { EventLogStorage } from "./contract.ts";
 
-/** Options for {@link createMongoStorage}. */
-export interface MongoStorageOptions {
-  /** A pre-constructed (optionally pre-connected) mongodb `MongoClient`. */
-  client?: MongoClient;
-  /**
-   * Connection string (e.g. `mongodb://localhost:27017`). When no `client` is
-   * given, a `MongoClient` is created lazily on first use via a dynamic
-   * `import("mongodb")`.
-   */
-  url?: string;
-  /** Database name. Defaults to `"xtandard_audit"`. */
-  dbName?: string;
-  /** KV collection name. Defaults to `"audit_kv"`. */
-  collectionName?: string;
+/**
+ * Options for {@link createMongoStorage}: a `client` or a `url`, the database
+ * (`dbName`, default `"xtandard_audit"`) and the KV collection
+ * (`collectionName`, default `"audit_kv"`).
+ */
+export interface MongoStorageOptions extends kit.MongoStorageOptions {
   /** Events collection name. Defaults to `"audit_events"`. */
   eventsCollectionName?: string;
 }
@@ -74,17 +77,9 @@ export interface MongoStorageOptions {
  *
  * Note: `watch` is deliberately absent (see the module docs).
  */
-export interface MongoAuditStorage extends EventLogStorage {
+export interface MongoAuditStorage extends EventLogStorage, CompareAndSwapKvStorage {
   /** Disconnect the underlying client if this adapter created it. No-op otherwise. */
   close(): Promise<void>;
-}
-
-/** Shape of a single key/value document stored in the KV collection. */
-interface KvDoc extends Document {
-  /** The storage key, stored verbatim as the Mongo document id. */
-  _id: string;
-  /** The stored value — arbitrary BSON (object, array, or primitive). */
-  value: unknown;
 }
 
 /** An event document: the event plus its denormalized search text. */
@@ -93,25 +88,10 @@ type EventDoc = AuditEvent & { search: string };
 /** Read projection: hand back exactly the stored event. */
 const EVENT_PROJECTION = { _id: 0, search: 0 } as const;
 
-/**
- * Escape characters that are special in a regular expression so a literal
- * string can be embedded into a pattern.
- */
-function escapeRegex(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /** Anchored "starts with" regex for a literal prefix. */
 const startsWith = (prefix: string): RegExp => new RegExp(`^${escapeRegex(prefix)}`);
 
 const toDoc = (event: AuditEvent): EventDoc => ({ ...event, search: searchText(event) });
-
-/** Is this a duplicate-key (E11000) error, top-level or inside a bulk write? */
-function isDuplicateKey(error: unknown): boolean {
-  const e = error as { code?: number; writeErrors?: Array<{ code?: number }> } | null;
-  if (e?.code === 11000) return true;
-  return Array.isArray(e?.writeErrors) && e.writeErrors.some((w) => w.code === 11000);
-}
 
 /**
  * Compile a {@link NormalizedQuery} to a Mongo filter that agrees exactly with
@@ -192,63 +172,20 @@ export function mongoEventFilter(q: NormalizedQuery): Filter<EventDoc> {
  */
 export function createMongoStorage(options: MongoStorageOptions): MongoAuditStorage {
   const {
-    url,
     dbName = "xtandard_audit",
     collectionName = "audit_kv",
     eventsCollectionName = "audit_events",
   } = options;
-  const ownsClient = !options.client;
-
-  let client: MongoClient | undefined = options.client;
-  let connecting: Promise<MongoClient> | undefined;
+  const connection = mongoConnection(
+    { ...options, dbName },
+    options.subpath ?? "@xtandard/audit/storage/mongodb",
+  );
   let indexing: Promise<Collection<EventDoc>> | undefined;
-
-  /** Resolve a connected client, creating/connecting it on first use. */
-  async function getClient(): Promise<MongoClient> {
-    connecting ??= (async () => {
-      if (!client) {
-        let MongoClientCtor: new (url: string) => MongoClient;
-        try {
-          ({ MongoClient: MongoClientCtor } = (await import("mongodb")) as unknown as {
-            MongoClient: new (url: string) => MongoClient;
-          });
-        } catch {
-          requirePeer("mongodb", "storage/mongodb");
-        }
-        if (url === undefined) {
-          throw new Error(
-            '@xtandard/audit/storage/mongodb requires either a "client" or a "url" option.',
-          );
-        }
-        client = new MongoClientCtor(url);
-      }
-      // node-mongodb's connect() is idempotent — calling it on an already
-      // connected client is a no-op — but guard regardless so a passed-in,
-      // already-connected client never surfaces a spurious error.
-      try {
-        await client.connect();
-      } catch (error) {
-        if (!isAlreadyConnected(error)) throw error;
-      }
-      return client;
-    })();
-    try {
-      return await connecting;
-    } catch (error) {
-      // Let a later operation retry the connection rather than caching a failure.
-      connecting = undefined;
-      throw error;
-    }
-  }
-
-  async function getCollection(): Promise<Collection<KvDoc>> {
-    return (await getClient()).db(dbName).collection<KvDoc>(collectionName);
-  }
 
   /** The events collection, with its indexes ensured once. */
   async function getEvents(): Promise<Collection<EventDoc>> {
     indexing ??= (async () => {
-      const events = (await getClient()).db(dbName).collection<EventDoc>(eventsCollectionName);
+      const events = await connection.collection<EventDoc>(eventsCollectionName);
       await events.createIndexes([
         { key: { tenant: 1, seq: 1 }, name: "tenant_seq", unique: true },
         { key: { tenant: 1, id: 1 }, name: "tenant_id", unique: true },
@@ -268,31 +205,7 @@ export function createMongoStorage(options: MongoStorageOptions): MongoAuditStor
   }
 
   return {
-    async getItem<T>(key: string): Promise<T | null> {
-      const collection = await getCollection();
-      const doc = await collection.findOne({ _id: key });
-      return doc ? (doc.value as T) : null;
-    },
-
-    async setItem<T>(key: string, value: T): Promise<void> {
-      const collection = await getCollection();
-      await collection.updateOne({ _id: key }, { $set: { value } }, { upsert: true });
-    },
-
-    async removeItem(key: string): Promise<void> {
-      const collection = await getCollection();
-      await collection.deleteOne({ _id: key });
-    },
-
-    async getKeys(prefix: string): Promise<string[]> {
-      const collection = await getCollection();
-      const cursor = collection
-        .find({ _id: { $regex: `^${escapeRegex(prefix)}` } })
-        .project<{ _id: string }>({ _id: 1 });
-      const out: string[] = [];
-      for await (const doc of cursor) out.push(doc._id);
-      return out;
-    },
+    ...mongoKvStorage(() => connection.collection<KvDocument>(collectionName)),
 
     async appendEvents(tenant, batch, { expectedSeq }): Promise<void> {
       if (batch.length === 0) return;
@@ -390,17 +303,6 @@ export function createMongoStorage(options: MongoStorageOptions): MongoAuditStor
       return ((await events.distinct("tenant")) as string[]).sort();
     },
 
-    async close(): Promise<void> {
-      if (ownsClient && client) await client.close();
-    },
+    close: connection.close,
   } satisfies MongoAuditStorage;
-}
-
-/**
- * Heuristic: does this error indicate the client was already connected? The
- * driver's exact message has varied across versions, so match loosely.
- */
-function isAlreadyConnected(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  return message.includes("already") && message.includes("connect");
 }

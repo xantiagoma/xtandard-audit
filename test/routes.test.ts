@@ -6,6 +6,7 @@ import type { AuditCheckpoint, AuditEvent, AuditPage, ActionDefinition } from ".
 import { callbackSink, type StreamBatch, type StreamStatus } from "../src/streams.ts";
 import { defineActions } from "../src/standard-schema.ts";
 import { exportFilename, parseQueryParams } from "../src/server/routes.ts";
+import { createFetchHandler } from "../src/server/create-fetch-handler.ts";
 import { call, evt, makePanel } from "./panel-fixtures.ts";
 
 async function seeded(options: Parameters<typeof makePanel>[0] = {}) {
@@ -534,5 +535,74 @@ describe("maintenance", () => {
     await new Promise((r) => setTimeout(r, 120));
     expect(await panel.core.count("acme")).toBeLessThan(3);
     await panel.close();
+  });
+});
+
+describe("routes — key-shaped path params (inventory §5, MySQL PAD SPACE)", () => {
+  test("a padded or impossible tenant / event id is a 404, never a storage lookup", async () => {
+    const panel = await seeded();
+    const [event] = (await call<AuditPage>(panel, "/api/tenants/acme/events?limit=1")).body.items;
+    for (const path of [
+      "/api/tenants/acme%20",
+      "/api/tenants/acme%20/events",
+      `/api/tenants/acme%20/events/${event!.id}`,
+      `/api/tenants/acme/events/${event!.id}%20`,
+      "/api/tenants/acme%20/export",
+      "/api/tenants/acme%20/verify",
+      "/api/tenants/..",
+    ]) {
+      expect((await call(panel, path)).status, path).toBe(404);
+    }
+    const erase = await call(panel, `/api/tenants/acme/events/${event!.id}%20/erase`, {
+      method: "POST",
+    });
+    expect(erase.status).toBe(404);
+    expect((await call(panel, "/api/events?tenant=acme%20")).status).toBe(400);
+    // Recording keeps the core's own validation error.
+    const record = await call(panel, "/api/tenants/acme%20/events", { body: evt("x.y") });
+    expect(record.status).toBe(422);
+  });
+
+  test("a malformed % escape is a 404, not a 500", async () => {
+    expect((await call(makePanel(), "/api/tenants/%E0%A4%A")).status).toBe(404);
+  });
+});
+
+describe("panel (from @xtandard/kit/server)", () => {
+  test("serves /healthcheck inside the panel", async () => {
+    const { status, body } = await call(makePanel(), "/healthcheck");
+    expect(status).toBe(200);
+    expect(body).toEqual({ ok: true });
+  });
+
+  test("the SPA gets window.__AUDIT_CONFIG__, an escaped title and no-cache", async () => {
+    const { res, body } = await call<string>(
+      makePanel({ title: "<script>x</script>", uiDir: "/nonexistent" }),
+      "/events",
+    );
+    expect(res.headers.get("cache-control")).toBe("no-cache");
+    expect(body).toContain("window.__AUDIT_CONFIG__=");
+    expect(body).toContain('<base href="/audit/">');
+    expect(body).not.toContain("<script>x</script>");
+  });
+
+  test("a non-GET on a non-API path is 405 with Allow", async () => {
+    const { status, res } = await call(makePanel(), "/somewhere", { method: "POST" });
+    expect(status).toBe(405);
+    expect(res.headers.get("allow")).toBe("GET, HEAD");
+  });
+
+  test("answers CORS preflights and decorates responses when configured", async () => {
+    const panel = makePanel({ cors: { origin: "https://app.example.com", credentials: true } });
+    const origin = { origin: "https://app.example.com" };
+    const pre = await call(panel, "/api/tenants", { method: "OPTIONS", headers: origin });
+    expect(pre.status).toBe(204);
+    expect(pre.res.headers.get("access-control-allow-origin")).toBe("https://app.example.com");
+    const res = await call(panel, "/api/tenants", { headers: origin });
+    expect(res.res.headers.get("access-control-allow-credentials")).toBe("true");
+  });
+
+  test("requires storage or a prebuilt core", () => {
+    expect(() => createFetchHandler({})).toThrow(/requires either `storage` or `core`/);
   });
 });

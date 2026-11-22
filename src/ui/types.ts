@@ -23,6 +23,7 @@ export type {
 export type { VerifyIssue, VerifyIssueKind, VerifyReport } from "../integrity.ts";
 export type { StreamStatus } from "../streams.ts";
 
+import { ApiError as KitApiError, type ApiErrorBody } from "@xtandard/kit/ui";
 import type { AuditEvent } from "../schema.ts";
 import type { StreamStatus } from "../streams.ts";
 
@@ -79,19 +80,10 @@ export interface Overview {
 /** Export formats served by `GET /api/tenants/:tenant/export`. */
 export type ExportFormat = "csv" | "json" | "jsonl" | "bundle";
 
-export interface ApiError {
-  status: number;
-  error: string;
-  code?: string;
-  errors?: { path?: string; message: string }[];
-}
+/** The JSON error body the API answers with (`{ error, code?, errors? }` plus the status). */
+export type ApiError = ApiErrorBody;
 
-export class AuditApiError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly body: ApiError,
-  ) {
-    super(body.error);
-    this.name = "AuditApiError";
-  }
+/** A non-2xx API response, with the real HTTP `status` and the parsed `body`. */
+export class AuditApiError extends KitApiError {
+  override name = "AuditApiError";
 }

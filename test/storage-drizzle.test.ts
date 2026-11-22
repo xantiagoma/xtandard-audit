@@ -26,6 +26,22 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 const client = new PGlite();
 const db = drizzle(client);
 let n = 0;
+const kvTables = new WeakMap<object, string>();
+const t = { describe, test, expect };
+
+/** Seed a row the way an earlier release wrote it, straight into the storage's KV table. */
+const seedLegacy = async (storage: object, key: string, raw: string) => {
+  await client.query(`INSERT INTO ${kvTables.get(storage)} (key, value) VALUES ($1, $2::jsonb)`, [
+    key,
+    raw,
+  ]);
+};
+
+/** Remember which KV table a storage writes to (for {@link seedLegacy}). */
+const track = <S extends object>(storage: S, name: string): S => {
+  kvTables.set(storage, name);
+  return storage;
+};
 
 /**
  * Create the tables the way a consumer's migration would (the adapter issues
@@ -46,36 +62,34 @@ async function freshTables(prefix = "aud") {
  */
 runStorageContractTests(
   "drizzle (pg/pglite)",
-  async () => createDrizzleStorage({ db, ...(await freshTables()) }),
-  { expectNativeEventLog: true },
+  async () => {
+    const tables = await freshTables();
+    return track(createDrizzleStorage({ db, ...tables }), getTableName(tables.table));
+  },
+  {
+    t,
+    capabilities: { compareAndSwap: true, watch: false },
+    expectNativeEventLog: true,
+    seedLegacy,
+  },
 );
 
 // Without the event tables the adapter is KV-only: the core's generic fallback is used.
 runStorageContractTests(
   "drizzle (pg/pglite, KV only)",
-  async () => createDrizzleStorage({ db, table: (await freshTables("kvonly")).table }),
-  { expectNativeEventLog: false },
+  async () => {
+    const { table } = await freshTables("kvonly");
+    return track(createDrizzleStorage({ db, table }), getTableName(table));
+  },
+  {
+    t,
+    capabilities: { compareAndSwap: true, watch: false },
+    expectNativeEventLog: false,
+    seedLegacy,
+  },
 );
 
 describe("createDrizzleStorage (pg/pglite)", () => {
-  test("round-trips nested values and isolates by prefix (LIKE escaped)", async () => {
-    const storage = createDrizzleStorage({ db, ...(await freshTables()) });
-    const value = { name: "invoice.paid", count: 42, nested: { tags: ["a", "b"] } };
-    await storage.setItem("aud/actions/invoice.paid", value);
-    expect(await storage.getItem("aud/actions/invoice.paid")).toEqual(value);
-
-    await storage.setItem("aud/t/app_1/a", { v: 1 });
-    await storage.setItem("aud/t/appX1/b", { v: 2 });
-    expect(await storage.getKeys("aud/t/app_1/")).toEqual(["aud/t/app_1/a"]);
-  });
-
-  test("setItem upserts (second write wins)", async () => {
-    const storage = createDrizzleStorage({ db, ...(await freshTables()) });
-    await storage.setItem("k", { n: 1 });
-    await storage.setItem("k", { n: 2 });
-    expect(await storage.getItem("k")).toEqual({ n: 2 });
-  });
-
   test("plain storage is not watchable (watch is composed via withWatch)", async () => {
     const storage = createDrizzleStorage({ db, ...(await freshTables()) });
     expect(isWatchable(storage)).toBe(false);
@@ -140,10 +154,27 @@ describe("createDrizzleStorage (pg/pglite)", () => {
 
 describe("table factories — shape", () => {
   test("all three dialects expose key + value columns", () => {
-    for (const t of [pgAuditTable("kv"), mysqlAuditTable("kv"), sqliteAuditTable("kv")]) {
-      expect(t.key).toBeDefined();
-      expect(t.value).toBeDefined();
+    for (const table of [pgAuditTable("kv"), mysqlAuditTable("kv"), sqliteAuditTable("kv")]) {
+      expect(table.key).toBeDefined();
+      expect(table.value).toBeDefined();
     }
+  });
+
+  test("KV key columns are the ones every release declared (no drizzle-kit ALTER)", () => {
+    const key = (cols: { name: string; getSQLType(): string }[]) =>
+      cols.find((c) => c.name === "key")!.getSQLType();
+    expect(key(getPgConfig(pgAuditTable() as never).columns)).toBe("text");
+    expect(key(getMysqlConfig(mysqlAuditTable() as never).columns)).toBe(
+      "varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
+    );
+    expect(key(getSqliteConfig(sqliteAuditTable() as never).columns)).toBe("text");
+    // New MySQL tables can opt into a NO PAD collation.
+    expect(
+      key(
+        getMysqlConfig(mysqlAuditTable("kv", { keyCollation: "utf8mb4_0900_bin" }) as never)
+          .columns,
+      ),
+    ).toBe("varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin");
   });
 
   test("table names default to xtandard_audit[_events|_event_targets]", () => {

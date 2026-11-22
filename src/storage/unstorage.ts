@@ -11,9 +11,12 @@
  * wrote.
  *
  * unstorage's key normalization is lossy (it cuts at `?`, turns `\` and `/`
- * into `:`, and collapses repeated `:`), so the adapter escapes `%`, `?`, `\`
- * and `:` inside segments before handing keys over and reverses it on the way
- * back: every key round-trips exactly.
+ * into `:`, collapses repeated `:` and hides keys ending in `$`), so the
+ * `@xtandard/kit/storage/unstorage` driver escapes `%`, `?`, `\`, `:`, a
+ * trailing `$` and empty segments before handing keys over and reverses it on
+ * the way back: every key round-trips exactly, and keys written by earlier
+ * releases still read. Strings are written JSON-encoded, so a stored `"123"`
+ * reads back as the string, not the number.
  *
  * KV only: events go through the core's generic KV event log (ADR 0005), and
  * unstorage has no compare-and-swap, so the core assumes a **single writer per
@@ -23,67 +26,7 @@
  * @module
  */
 
-import type { Storage } from "unstorage";
-import type { AuditStorage } from "./contract.ts";
-
-/** Options for {@link createUnstorageStorage}. */
-export interface UnstorageStorageOptions {
-  /** A pre-constructed unstorage `Storage` instance (any driver). */
-  storage: Storage;
-}
-
-const ESCAPES: Record<string, string> = { "%": "%25", "?": "%3F", "\\": "%5C", ":": "%3A" };
-const UNESCAPES: Record<string, string> = { "%25": "%", "%3F": "?", "%5C": "\\", "%3A": ":" };
-
-/** Escape the characters unstorage would normalize away (segments keep their `/`). */
-const toUnstorageKey = (key: string): string => key.replace(/[%?\\:]/g, (ch) => ESCAPES[ch]!);
-
-/** Convert an unstorage `:`-separated key back to the original `/`-separated key. */
-const fromUnstorageKey = (key: string): string =>
-  key.replace(/:/g, "/").replace(/%(25|3F|5C|3A)/g, (m) => UNESCAPES[m]!);
-
-/**
- * Create a {@link AuditStorage} backed by an unstorage `Storage` instance.
- * unstorage auto-serializes/deserializes JSON values, so values round-trip
- * structurally; missing keys read back as `null`.
- *
- * @example
- * ```ts
- * import { createUnstorageStorage } from "@xtandard/audit/storage/unstorage";
- * import { createStorage } from "unstorage";
- * import fsDriver from "unstorage/drivers/fs";
- *
- * const storage = createUnstorageStorage({
- *   storage: createStorage({ driver: fsDriver({ base: "./data/audit" }) }),
- * });
- * ```
- */
-export function createUnstorageStorage(options: UnstorageStorageOptions): AuditStorage {
-  const { storage } = options;
-
-  return {
-    async getItem<T>(key: string): Promise<T | null> {
-      const value = await storage.getItem<T>(toUnstorageKey(key));
-      return value === undefined ? null : value;
-    },
-
-    async setItem<T>(key: string, value: T): Promise<void> {
-      // unstorage's setItem rejects `undefined`; the contract never stores it.
-      await storage.setItem(toUnstorageKey(key), value as NonNullable<T>);
-    },
-
-    async removeItem(key: string): Promise<void> {
-      await storage.removeItem(toUnstorageKey(key));
-    },
-
-    async getKeys(prefix: string): Promise<string[]> {
-      // unstorage's getKeys takes a base and returns matching keys with `:`
-      // separators; convert them back so callers get their original `/` keys.
-      // unstorage treats the base as a namespace (`aud:x` lists `aud:x:*` only), while the
-      // contract is a plain string prefix: list from the last `/` boundary, then filter.
-      const base = prefix.slice(0, prefix.lastIndexOf("/") + 1);
-      const keys = await storage.getKeys(toUnstorageKey(base));
-      return keys.map(fromUnstorageKey).filter((key) => key.startsWith(prefix));
-    },
-  } satisfies AuditStorage;
-}
+export {
+  createUnstorageStorage,
+  type UnstorageStorageOptions,
+} from "@xtandard/kit/storage/unstorage";

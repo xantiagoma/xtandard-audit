@@ -7,8 +7,10 @@
  * schema brings them into your normal `drizzle-kit` generate/migrate flow
  * instead of an adapter-side `CREATE TABLE`:
  *
- * - {@link pgAuditTable} — KV (`key text PRIMARY KEY`, `value jsonb NOT NULL`);
- *   `extraColumns`/`extraIndexes` mirror the `drizzle-audit` factories.
+ * - {@link pgAuditTable} — KV (`key text PRIMARY KEY`, `value jsonb NOT NULL`),
+ *   the kit's `pgKvTable` with the plain `text` key every release declared (so
+ *   drizzle-kit generates no `ALTER`); `extraColumns`/`extraIndexes` mirror the
+ *   `drizzle-audit` factories.
  * - {@link pgAuditEventsTable} / {@link pgAuditEventTargetsTable} — the events
  *   and their targets, with the indexes the native query uses.
  * - {@link pgAuditTables} — all three with matching names, in one call.
@@ -32,10 +34,9 @@
  * @module
  */
 
-import type { BuildExtraConfigColumns } from "drizzle-orm";
+import { pgKvTable, textC, type PgKvColumns } from "@xtandard/kit/drizzle/pg";
 import {
   bigint,
-  customType,
   index,
   jsonb,
   pgSchema,
@@ -61,7 +62,7 @@ export type {
 } from "./table.ts";
 
 /** The `self` passed to an {@link PgAuditTableOptions.extraIndexes} callback. */
-type PgAuditColumns = BuildExtraConfigColumns<string, Record<string, PgColumnBuilderBase>, "pg">;
+type PgAuditColumns = PgKvColumns;
 
 /** Options for {@link pgAuditTable}. */
 export interface PgAuditTableOptions {
@@ -79,13 +80,6 @@ export interface PgAuditEventTablesOptions {
   schema?: string;
 }
 
-/**
- * `text COLLATE "C"`: bytewise ordering and LIKE prefixes, so `(occurred_at,
- * id)` sorts exactly like the in-memory matcher and stays index-friendly
- * whatever the database's default collation.
- */
-const textC = customType<{ data: string }>({ dataType: () => `text COLLATE "C"` });
-
 /** `pgTable`, or the schema-scoped equivalent (same call signature; only the schema brand differs). */
 const tableIn = (schema: string | undefined) =>
   (schema ? pgSchema(schema).table : pgTable) as typeof pgTable;
@@ -97,20 +91,16 @@ const tableIn = (schema: string | undefined) =>
  * The table name defaults to `"xtandard_audit"`.
  */
 export function pgAuditTable(name = "xtandard_audit", opts?: PgAuditTableOptions): DrizzleKvTable {
-  const columns = {
-    key: text("key").primaryKey(),
-    value: jsonb("value").notNull(),
-    ...opts?.extraColumns?.(),
-  };
-  return opts?.schema
-    ? pgSchema(opts.schema).table(name, columns, opts.extraIndexes)
-    : pgTable(name, columns, opts?.extraIndexes);
+  return pgKvTable(name, { ...opts, keyCollation: null });
 }
 
 /**
  * Build the events table: `PRIMARY KEY (tenant, seq)`, `UNIQUE (tenant, id)`
  * and `(tenant, occurred_at, id)` / `(tenant, actor_id, …)` / `(tenant, action,
- * …)` indexes. The name defaults to `"xtandard_audit_events"`.
+ * …)` indexes. The name defaults to `"xtandard_audit_events"`. `id`, `action`
+ * and `occurred_at` are `text COLLATE "C"` (the kit's `textC`): bytewise
+ * ordering and LIKE prefixes, so `(occurred_at, id)` sorts exactly like the
+ * in-memory matcher whatever the database's default collation.
  */
 export function pgAuditEventsTable(
   name = "xtandard_audit_events",

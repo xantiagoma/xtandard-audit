@@ -9,9 +9,13 @@
  * null, arrays, plain objects — it matches RFC 8785 (JCS) for integers and
  * strings; non-finite numbers are rejected rather than silently becoming `null`.
  *
+ * The implementation is `@xtandard/kit/util`'s `canonicalStringify` (taken from
+ * this file; the output is byte-identical — `test/integrity.test.ts` pins it).
+ *
  * @module
  */
 
+import { canonicalStringify as kitCanonicalStringify } from "@xtandard/kit/util";
 import type { JsonValue } from "./schema.ts";
 
 /**
@@ -25,17 +29,5 @@ import type { JsonValue } from "./schema.ts";
  * ```
  */
 export function canonicalStringify(value: JsonValue | undefined): string {
-  if (value === undefined) return "null";
-  if (value === null || typeof value !== "object") {
-    if (typeof value === "number" && !Number.isFinite(value)) {
-      throw new TypeError(`canonicalStringify: non-finite number ${value}`);
-    }
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) return `[${value.map((v) => canonicalStringify(v)).join(",")}]`;
-  const keys = Object.keys(value).sort();
-  const entries = keys
-    .filter((k) => value[k] !== undefined)
-    .map((k) => `${JSON.stringify(k)}:${canonicalStringify(value[k] as JsonValue)}`);
-  return `{${entries.join(",")}}`;
+  return kitCanonicalStringify(value);
 }

@@ -21,25 +21,22 @@
  * event has none); `search` is {@link searchText}. Every query compiled here
  * agrees with the in-memory {@link matchesQuery} (the conformance suite checks it).
  *
+ * The KV table itself, its connection and its DDL retry come from the kit's
+ * driver internals (`@xtandard/kit/storage/{postgres,sqlite,libsql}/internals`);
+ * the event-log statements here run on the same connection.
+ *
  * @module
  */
 
+import { assertIdentifier, escapeGlob, escapeLike } from "@xtandard/kit/storage";
 import { searchText, type NormalizedQuery } from "../query.ts";
 import type { AuditEvent } from "../schema.ts";
 import { ChainConflictError, type EventLogStorage } from "./contract.ts";
 
-/** Identifiers we are willing to interpolate into DDL/queries unquoted. */
-export const SAFE_IDENTIFIER = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+export { escapeGlob, escapeLike } from "@xtandard/kit/storage";
 
 /** Throw unless `name` is a safe SQL identifier; returns it. */
-export function assertSafeIdentifier(name: string): string {
-  if (!SAFE_IDENTIFIER.test(name)) {
-    throw new Error(
-      `Invalid table name ${JSON.stringify(name)}: must match ${SAFE_IDENTIFIER.source}`,
-    );
-  }
-  return name;
-}
+export const assertSafeIdentifier = (name: string): string => assertIdentifier(name);
 
 /** The two event-log tables derived from a driver's base table name. */
 export interface EventTableNames {
@@ -52,15 +49,6 @@ export const eventTableNames = (table: string): EventTableNames => ({
   events: `${table}_events`,
   targets: `${table}_event_targets`,
 });
-
-/**
- * Escape LIKE wildcards with `!` (portable across Postgres, MySQL and SQLite,
- * unlike a backslash, which MySQL string literals eat). Pair with `ESCAPE '!'`.
- */
-export const escapeLike = (literal: string): string => literal.replace(/[!%_]/g, (c) => `!${c}`);
-
-/** Escape GLOB metacharacters (SQLite's case-sensitive pattern match). */
-export const escapeGlob = (literal: string): string => literal.replace(/[*?[]/g, (c) => `[${c}]`);
 
 /** The scalar columns of one `{table}_events` row (without `data`). */
 export interface EventColumns {

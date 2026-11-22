@@ -1,51 +1,28 @@
 /**
  * Storage contracts. The base {@link AuditStorage} is intentionally tiny —
  * four async methods — so users can bring their own backend. Optional
- * capabilities (watch, transactions, compare-and-swap, and the audit-specific
- * native event log) are separate interfaces that adapters may implement and the
- * core feature-detects (ADR 0005).
+ * capabilities (watch, compare-and-swap, and the audit-specific native event
+ * log) are separate interfaces that adapters may implement and the core
+ * feature-detects (ADR 0005).
+ *
+ * The neutral contract lives in `@xtandard/kit/storage`; these are the audit
+ * names for it, plus the audit-only {@link EventLogStorage}.
  *
  * @module
  */
 
+import { requirePeer as kitRequirePeer, type KvStorage } from "@xtandard/kit/storage";
 import type { AuditEvent } from "../schema.ts";
 import type { NormalizedQuery } from "../query.ts";
 
-/** The minimal key/value contract every storage backend must satisfy. */
-export interface AuditStorage {
-  /** Read a value, or `null` if absent. */
-  getItem<T>(key: string): Promise<T | null>;
-  /** Write a value (overwriting any existing). */
-  setItem<T>(key: string, value: T): Promise<void>;
-  /** Delete a key (no-op if absent). */
-  removeItem(key: string): Promise<void>;
-  /** List all keys beginning with `prefix`. */
-  getKeys(prefix: string): Promise<string[]>;
-}
-
-/** A storage change event delivered to {@link WatchableAuditStorage.watch} callbacks. */
-export interface StorageChangeEvent {
-  type: "update" | "remove";
-  key: string;
-}
-
-/** Storage that can push change notifications (e.g. Redis pub/sub, fs.watch). */
-export interface WatchableAuditStorage extends AuditStorage {
-  /**
-   * Subscribe to changes under `prefix`. Resolves to an unsubscribe function.
-   */
-  watch(prefix: string, callback: (event: StorageChangeEvent) => void): Promise<() => void>;
-}
-
-/** Storage that supports atomic multi-key transactions. */
-export interface TransactionalAuditStorage extends AuditStorage {
-  transaction<T>(callback: (tx: AuditStorage) => Promise<T>): Promise<T>;
-}
-
-/** Storage that supports optimistic concurrency via compare-and-swap. */
-export interface CompareAndSwapAuditStorage extends AuditStorage {
-  compareAndSwap<T>(input: { key: string; expected: T | null; next: T }): Promise<boolean>;
-}
+export type {
+  CompareAndSwapKvStorage as CompareAndSwapAuditStorage,
+  KvStorage as AuditStorage,
+  StorageChangeEvent,
+  TransactionalKvStorage as TransactionalAuditStorage,
+  WatchableKvStorage as WatchableAuditStorage,
+} from "@xtandard/kit/storage";
+export { isCompareAndSwap, isTransactional, isWatchable } from "@xtandard/kit/storage";
 
 /**
  * Thrown by {@link EventLogStorage.appendEvents} when the tenant's chain moved
@@ -73,7 +50,7 @@ export class ChainConflictError extends Error {
  *   `(occurredAt, id)` in `query.order`, starts strictly after `query.after`,
  *   and returns at most `query.limit` items plus whether more exist.
  */
-export interface EventLogStorage extends AuditStorage {
+export interface EventLogStorage extends KvStorage {
   appendEvents(
     tenant: string,
     events: AuditEvent[],
@@ -95,23 +72,8 @@ export interface EventLogStorage extends AuditStorage {
   listEventTenants(): Promise<string[]>;
 }
 
-/** Runtime feature-detection: does this storage implement `watch`? */
-export function isWatchable(storage: AuditStorage): storage is WatchableAuditStorage {
-  return typeof (storage as Partial<WatchableAuditStorage>).watch === "function";
-}
-
-/** Runtime feature-detection: does this storage implement `transaction`? */
-export function isTransactional(storage: AuditStorage): storage is TransactionalAuditStorage {
-  return typeof (storage as Partial<TransactionalAuditStorage>).transaction === "function";
-}
-
-/** Runtime feature-detection: does this storage implement `compareAndSwap`? */
-export function isCompareAndSwap(storage: AuditStorage): storage is CompareAndSwapAuditStorage {
-  return typeof (storage as Partial<CompareAndSwapAuditStorage>).compareAndSwap === "function";
-}
-
 /** Runtime feature-detection: does this storage implement the native event log? */
-export function hasEventLog(storage: AuditStorage): storage is EventLogStorage {
+export function hasEventLog(storage: KvStorage): storage is EventLogStorage {
   return typeof (storage as Partial<EventLogStorage>).appendEvents === "function";
 }
 
@@ -120,7 +82,5 @@ export function hasEventLog(storage: AuditStorage): storage is EventLogStorage {
  * a clear, actionable error when the peer is missing.
  */
 export function requirePeer(name: string, subpath: string): never {
-  throw new Error(
-    `@xtandard/audit/${subpath} requires the "${name}" package. Install it with: bun add ${name}`,
-  );
+  return kitRequirePeer(name, `@xtandard/audit/${subpath}`);
 }

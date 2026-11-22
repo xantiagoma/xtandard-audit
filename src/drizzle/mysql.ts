@@ -29,7 +29,12 @@
  * @module
  */
 
-import type { BuildColumns } from "drizzle-orm";
+import {
+  binVarchar,
+  mysqlKvTable,
+  type MysqlKeyCollation,
+  type MysqlKvColumns,
+} from "@xtandard/kit/drizzle/mysql";
 import {
   bigint,
   customType,
@@ -57,7 +62,7 @@ export type {
 } from "./table.ts";
 
 /** The `self` passed to an {@link MysqlAuditTableOptions.extraIndexes} callback. */
-type MysqlAuditColumns = BuildColumns<string, Record<string, MySqlColumnBuilderBase>, "mysql">;
+type MysqlAuditColumns = MysqlKvColumns;
 
 /** Options for {@link mysqlAuditTable}. */
 export interface MysqlAuditTableOptions {
@@ -66,17 +71,20 @@ export interface MysqlAuditTableOptions {
    * short slash-delimited paths). Keep within your InnoDB index-prefix limit.
    */
   keyLength?: number;
+  /**
+   * Collation of the `key` column. Default `"utf8mb4_bin"` (what every release
+   * declared, so drizzle-kit generates no `ALTER`). It is PAD SPACE: keys that
+   * differ only by trailing spaces collide, which the storage turns into a
+   * `KeyCollisionError`. New tables can use `"utf8mb4_0900_bin"` (MySQL 8.0+)
+   * or `"utf8mb4_nopad_bin"` (MariaDB). Audit keys never end in a space (every
+   * segment is URI-encoded), so the default is safe.
+   */
+  keyCollation?: MysqlKeyCollation;
   /** Additional columns merged into the table. */
   extraColumns?: () => Record<string, MySqlColumnBuilderBase>;
   /** Additional indexes/constraints; receives the built table for column references. */
   extraIndexes?: (table: MysqlAuditColumns) => MySqlTableExtraConfigValue[];
 }
-
-/** A case- and accent-sensitive (`utf8mb4_bin`) `varchar(length)`. */
-const binVarchar = (name: string, length: number) =>
-  customType<{ data: string }>({
-    dataType: () => `varchar(${length}) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
-  })(name);
 
 /** A `utf8mb4_bin` `longtext` (the lower-cased search haystack). */
 const binLongtext = customType<{ data: string }>({
@@ -92,17 +100,7 @@ export function mysqlAuditTable(
   name = "xtandard_audit",
   opts?: MysqlAuditTableOptions,
 ): DrizzleKvTable {
-  const columns = {
-    key: binVarchar("key", opts?.keyLength ?? 512).primaryKey(),
-    value: json("value").notNull(),
-    ...opts?.extraColumns?.(),
-  };
-  // Cast to the exact `self` type Drizzle infers from `columns` — the public
-  // `extraIndexes` type uses a generic column map, which is a supertype.
-  const extraConfig = opts?.extraIndexes as
-    | ((self: BuildColumns<string, typeof columns, "mysql">) => MySqlTableExtraConfigValue[])
-    | undefined;
-  return mysqlTable(name, columns, extraConfig);
+  return mysqlKvTable(name, { keyCollation: "utf8mb4_bin", ...opts });
 }
 
 /**
@@ -162,7 +160,7 @@ export function mysqlAuditEventTargetsTable(
 /** All three tables with matching names: `{name}`, `{name}_events`, `{name}_event_targets`. */
 export function mysqlAuditTables(
   name = "xtandard_audit",
-  opts?: Pick<MysqlAuditTableOptions, "keyLength">,
+  opts?: Pick<MysqlAuditTableOptions, "keyLength" | "keyCollation">,
 ): DrizzleAuditTables {
   return {
     table: mysqlAuditTable(name, opts),

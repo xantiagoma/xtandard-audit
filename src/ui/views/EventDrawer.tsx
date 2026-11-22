@@ -5,9 +5,9 @@ import type { AuditEvent, AuditSection } from "../types.ts";
 import { AuditApiError } from "../types.ts";
 import { AUDIT_SECTIONS } from "../../schema.ts";
 import { eraseEvent, getEvent } from "../api.ts";
-import { useToast } from "../components/Toast.tsx";
-import { Button } from "../components/ui-bits.tsx";
-import { TextArea } from "../components/primitives.tsx";
+import { useToast } from "@xtandard/kit/ui";
+import { Button } from "@xtandard/kit/ui";
+import { TextArea } from "@xtandard/kit/ui";
 import { JsonCodeEditor } from "../components/JsonCodeEditor.tsx";
 import {
   ConfirmDialog,
@@ -20,7 +20,7 @@ import {
   ToneBadge,
 } from "../components/audit-bits.tsx";
 import { erasedSections, formatDateTime, isErasedValue, relativeTime } from "../lib/format.ts";
-import { cn } from "../lib/utils.ts";
+import { cn } from "@xtandard/kit/ui";
 
 const json = (value: unknown): string => JSON.stringify(value, null, 2);
 

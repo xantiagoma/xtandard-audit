@@ -81,7 +81,7 @@ export function auditElysia(options: AuditElysiaOptions) {
   const tenant = "/api/tenants/:tenant";
   const event = `${tenant}/events/:id`;
 
-  return new Elysia({ prefix, name: "xtandard-audit" })
+  return new Elysia({ prefix, name: "xtandard-audit", seed: prefix })
     .get("/config", pass)
     .get("/api/config", pass)
     .get("/api/openapi.json", pass)

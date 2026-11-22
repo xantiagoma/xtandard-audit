@@ -8,6 +8,7 @@
  * @module
  */
 
+import type { SqliteExecutor as KvExecutor } from "@xtandard/kit/storage/sqlite/internals";
 import { ChainConflictError } from "./contract.ts";
 import {
   assertContiguous,
@@ -23,14 +24,12 @@ import {
 } from "./sql.ts";
 
 /**
- * The minimal executor a SQLite-dialect driver provides: `all` for reads, and
- * `atomic` running statements in one write transaction (all or nothing),
- * resolving to each statement's affected-row count.
+ * The executor a SQLite-dialect driver provides: the kit's, with `atomic` (all
+ * or nothing, each statement's affected-row count) required. The kit's
+ * `bunSqliteExecutor` (`BEGIN IMMEDIATE`) and `libsqlExecutor` (a write `batch`)
+ * implement it.
  */
-export interface SqliteExecutor {
-  all(sql: string, args: unknown[]): Promise<Array<Record<string, unknown>>>;
-  atomic(statements: SqlStatement[]): Promise<number[]>;
-}
+export type SqliteExecutor = Required<KvExecutor>;
 
 /**
  * The native event log over a SQLite-dialect {@link SqliteExecutor}.

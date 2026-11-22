@@ -3,7 +3,8 @@
  * Every storage adapter runs the same battery by calling
  * {@link runStorageContractTests}:
  *
- * 1. the four-method KV contract (round-trips, prefixes, ordering of padded keys);
+ * 1. the four-method KV contract and its capabilities: the shared
+ *    `@xtandard/kit/storage/testing` suite, run with the `aud` key root;
  * 2. the **event log** through the core — record, query (every filter, keyset
  *    pagination in both orders), get, eventsBySeq, erase, prune, verify — which
  *    exercises the native `EventLogStorage` capability when the adapter has it
@@ -17,10 +18,16 @@
  * @module
  */
 
+import {
+  runStorageConformance,
+  type ConformanceCapabilities,
+  type ConformanceTestApi,
+  type SeedLegacy,
+} from "@xtandard/kit/storage/testing";
 import { describe, expect, test } from "vitest";
 import { createAuditCore } from "../src/core.ts";
 import { hmacSigner, sealChain, GENESIS_HASH } from "../src/integrity.ts";
-import { eventKey, padSeq } from "../src/keys.ts";
+import { eventKey, padSeq, ROOT } from "../src/keys.ts";
 import { normalizeQuery } from "../src/query.ts";
 import type { AuditEvent } from "../src/schema.ts";
 import { ChainConflictError, hasEventLog, type AuditStorage } from "../src/storage/contract.ts";
@@ -28,8 +35,14 @@ import { ChainConflictError, hasEventLog, type AuditStorage } from "../src/stora
 /** A factory producing a fresh, empty storage for each test. */
 export type MakeStorage = () => Promise<AuditStorage> | AuditStorage;
 
-/** Optional extras a backend opts into. */
+/** What a backend opts into. */
 export interface StorageContractOptions {
+  /** The injected test API for the kit suite (`{ describe, test, expect }` from vitest or bun:test). */
+  t: ConformanceTestApi;
+  /** Capabilities for the kit suite — declare every one (`false` for what the driver lacks). */
+  capabilities: ConformanceCapabilities;
+  /** Write a non-canonical stored form directly (the kit's legacy-CAS case). */
+  seedLegacy?: SeedLegacy;
   /** Assert the adapter implements the native event log (default: detect). */
   expectNativeEventLog?: boolean;
   /** Per-test timeout (remote backends). */
@@ -94,95 +107,26 @@ export async function seedEvents(storage: AuditStorage) {
 export function runStorageContractTests(
   name: string,
   makeStorage: MakeStorage,
-  options: StorageContractOptions = {},
+  options: StorageContractOptions,
 ): void {
   const t = options.timeout;
 
-  describe(`AuditStorage KV contract: ${name}`, () => {
-    test("returns null for a missing key", { timeout: t }, async () => {
-      const storage = await makeStorage();
-      expect(await storage.getItem("aud/t/acme/missing")).toBeNull();
-    });
+  runStorageConformance(name, makeStorage, {
+    t: options.t,
+    keyRoot: ROOT,
+    capabilities: options.capabilities,
+    seedLegacy: options.seedLegacy,
+    timeout: t,
+  });
 
-    test("round-trips object and primitive values", { timeout: t }, async () => {
-      const storage = await makeStorage();
-      const value = { action: "invoice.paid", targets: ["a", "b"], nested: { x: 1 } };
-      await storage.setItem("aud/actions/invoice.paid", value);
-      await storage.setItem("aud/t/acme/ids/evt_1", 7);
-      await storage.setItem("aud/x/str", "hello");
-      expect(await storage.getItem("aud/actions/invoice.paid")).toEqual(value);
-      expect(await storage.getItem("aud/t/acme/ids/evt_1")).toBe(7);
-      expect(await storage.getItem("aud/x/str")).toBe("hello");
-    });
-
-    test("overwrites and removes", { timeout: t }, async () => {
-      const storage = await makeStorage();
-      await storage.setItem("aud/k", { v: 1 });
-      await storage.setItem("aud/k", { v: 2 });
-      expect(await storage.getItem("aud/k")).toEqual({ v: 2 });
-      await storage.removeItem("aud/k");
-      expect(await storage.getItem("aud/k")).toBeNull();
-      await expect(storage.removeItem("aud/nope")).resolves.toBeUndefined();
-    });
-
-    test("getKeys lists nested keys under a prefix, isolated", { timeout: t }, async () => {
-      const storage = await makeStorage();
-      await storage.setItem("aud/t/acme/head", { seq: 1 });
-      await storage.setItem("aud/t/acme/checkpoints/chk_1", { v: 1 });
-      await storage.setItem("aud/t/acmeX/head", { seq: 2 });
-      expect((await storage.getKeys("aud/t/acme/")).sort()).toEqual(
-        ["aud/t/acme/checkpoints/chk_1", "aud/t/acme/head"].sort(),
-      );
-      expect(await storage.getKeys("aud/t/none/")).toEqual([]);
-    });
-
-    test("keys are case- and accent-exact", { timeout: t }, async () => {
-      const storage = await makeStorage();
-      // NFC "é" vs NFD "e\u0301" vs plain "e"; upper vs lower case.
-      const keys = [
-        "aud/t/Acme/k",
-        "aud/t/acme/k",
-        "aud/t/ACME/k",
-        "aud/t/caf\u00e9/k",
-        "aud/t/cafe\u0301/k",
-        "aud/t/cafe/k",
-      ];
-      for (const [i, key] of keys.entries()) await storage.setItem(key, i);
-      for (const [i, key] of keys.entries()) expect(await storage.getItem(key)).toBe(i);
-      expect(await storage.getKeys("aud/t/acme/")).toEqual(["aud/t/acme/k"]);
-      expect(await storage.getKeys("aud/t/Acme/")).toEqual(["aud/t/Acme/k"]);
-      expect(await storage.getKeys("aud/t/cafe/")).toEqual(["aud/t/cafe/k"]);
-      expect(await storage.getKeys("aud/t/caf\u00e9/")).toEqual(["aud/t/caf\u00e9/k"]);
-      await storage.removeItem("aud/t/Acme/k");
-      expect(await storage.getItem("aud/t/acme/k")).toBe(1);
-    });
-
-    test("prefixes are literal: % _ ! * [ ] ? \\ are not wildcards", { timeout: t }, async () => {
-      const storage = await makeStorage();
-      const specials = ["%", "_", "!", "*", "[", "]", "?", "\\", ":", "%25"];
-      for (const ch of specials) {
-        await storage.setItem(`aud/w/a${ch}b/k`, ch);
-        await storage.setItem(`aud/w/aXb/k${ch}`, ch);
-      }
-      for (const ch of specials) {
-        expect(await storage.getKeys(`aud/w/a${ch}b/`)).toEqual([`aud/w/a${ch}b/k`]);
-      }
-      expect((await storage.getKeys("aud/w/aXb/")).length).toBe(specials.length);
-      // Plain string prefixes, not only segment boundaries.
-      for (const ch of specials) {
-        expect(await storage.getKeys(`aud/w/a${ch}b`)).toEqual([`aud/w/a${ch}b/k`]);
-      }
-    });
-
+  describe(`AuditStorage event log: ${name}`, () => {
     test("zero-padded seq keys sort lexicographically = numerically", { timeout: t }, async () => {
       const storage = await makeStorage();
       for (const seq of [10, 2, 100, 1]) await storage.setItem(eventKey("acme", seq), { seq });
       const keys = (await storage.getKeys("aud/t/acme/events/")).sort();
       expect(keys.map((k) => k.slice(-12))).toEqual([1, 2, 10, 100].map(padSeq));
     });
-  });
 
-  describe(`AuditStorage event log: ${name}`, () => {
     if (options.expectNativeEventLog !== undefined) {
       test("native event-log capability matches expectation", { timeout: t }, async () => {
         expect(hasEventLog(await makeStorage())).toBe(options.expectNativeEventLog);

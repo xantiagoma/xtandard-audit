@@ -18,6 +18,7 @@
 
 import type { Context, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
+import { mountPanel } from "@xtandard/kit/adapters/hono";
 import { runWithAuditContext } from "../context.ts";
 import { createFetchHandler, type AuditPanelOptions } from "../server/create-fetch-handler.ts";
 import { resolveAuditScope, type AuditContextOptions } from "./context-shared.ts";
@@ -33,9 +34,7 @@ export function auditPanel(options: AuditPanelOptions): Hono & {
   close: ReturnType<typeof createFetchHandler>["close"];
 } {
   const handler = createFetchHandler(options);
-  const app = new Hono();
-  app.all("*", (c) => handler.fetch(c.req.raw));
-  return Object.assign(app, {
+  return Object.assign(mountPanel(new Hono(), handler.fetch), {
     core: handler.core,
     streams: handler.streams,
     openapi: handler.openapi,

@@ -16,19 +16,21 @@ import {
 import { createAuditCore } from "../src/core.ts";
 import { exportEvents } from "../src/export.ts";
 import { generateSigningKeyPair, ed25519Signer, type VerifyReport } from "../src/integrity.ts";
-import { createMemoryStorage as realMemoryStorage } from "../src/storage/memory.ts";
 
 // Every `run([...])` builds a fresh core from env; with STORAGE_DRIVER=memory
 // that would be a fresh, empty store each time. Share one store across calls
 // (reset per test) so commands see each other's writes, like a real database.
 const shared = vi.hoisted(() => ({ storage: null as unknown }));
-vi.mock("../src/entry-storage-memory.ts", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("../src/entry-storage-memory.ts")>();
+vi.mock("../src/storage/memory.ts", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/storage/memory.ts")>();
   return {
     ...mod,
     createMemoryStorage: () => (shared.storage ??= mod.createMemoryStorage()),
   };
 });
+const { createMemoryStorage: realMemoryStorage } = await vi.importActual<
+  typeof import("../src/storage/memory.ts")
+>("../src/storage/memory.ts");
 
 let dir: string;
 let out: string[];

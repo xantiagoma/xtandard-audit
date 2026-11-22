@@ -13,9 +13,10 @@
  */
 
 import type { Column, Table } from "drizzle-orm";
+import type { DrizzleKvTable } from "@xtandard/kit/drizzle/pg";
 
-/** A table with the fixed `key`/`value` columns the audit KV store requires. */
-export type DrizzleKvTable = Table & { key: Column; value: Column };
+/** A table with the fixed `key`/`value` columns the audit KV store requires (the kit's shape). */
+export type { DrizzleKvTable } from "@xtandard/kit/drizzle/pg";
 
 /**
  * The native event-log table (`{name}_events`): one row per event, the full

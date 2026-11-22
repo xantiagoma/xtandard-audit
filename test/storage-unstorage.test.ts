@@ -6,19 +6,14 @@ import { runStorageContractTests } from "./storage-contract.ts";
 runStorageContractTests(
   "unstorage (memory driver)",
   () => createUnstorageStorage({ storage: createStorage() }),
-  { expectNativeEventLog: false },
+  {
+    t: { describe, test, expect },
+    capabilities: { compareAndSwap: false, watch: false },
+    expectNativeEventLog: false,
+  },
 );
 
 describe("createUnstorageStorage specifics", () => {
-  test("getKeys returns slash-separated keys, not unstorage's colon form", async () => {
-    const storage = createUnstorageStorage({ storage: createStorage() });
-    await storage.setItem("aud/t/acme/checkpoints/chk_1", { v: 1 });
-    await storage.setItem("aud/t/acme/head", { key: "acme" });
-    const keys = await storage.getKeys("aud/t/acme/");
-    expect(keys.sort()).toEqual(["aud/t/acme/checkpoints/chk_1", "aud/t/acme/head"]);
-    for (const k of keys) expect(k).not.toContain(":");
-  });
-
   test("escaped key segments survive the separator round-trip", async () => {
     const storage = createUnstorageStorage({ storage: createStorage() });
     // The core escapes free-form segments (`encodeURIComponent`), so `:` and `/`
@@ -29,10 +24,12 @@ describe("createUnstorageStorage specifics", () => {
     expect(await storage.getItem(key)).toEqual({ seq: 1 });
   });
 
-  test("auto-deserializes JSON values and yields null for missing", async () => {
-    const storage = createUnstorageStorage({ storage: createStorage() });
-    expect(await storage.getItem("aud/t/acme/none")).toBeNull();
-    await storage.setItem("aud/t/acme/obj", { nested: { ok: true } });
-    expect(await storage.getItem("aud/t/acme/obj")).toEqual({ nested: { ok: true } });
+  test("keys written by v0.1.x read back", async () => {
+    // Earlier releases stored values through unstorage verbatim, under the escaped key.
+    const raw = createStorage();
+    await raw.setItem("aud/t/acme%3Aeu/head", { seq: 3 });
+    const storage = createUnstorageStorage({ storage: raw });
+    expect(await storage.getItem("aud/t/acme:eu/head")).toEqual({ seq: 3 });
+    expect(await storage.getKeys("aud/t/")).toEqual(["aud/t/acme:eu/head"]);
   });
 });

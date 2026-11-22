@@ -17,22 +17,21 @@
  * audpt_<base64url(JSON { tenant, exp, filter? })>.<base64url(HMAC-SHA256(secret, payloadPart))>
  * ```
  *
- * Zero dependencies (Web Crypto only). The portal secret is an **arbitrary
- * string** — it is fed to the HMAC as raw UTF-8 bytes.
+ * The mechanics are `@xtandard/kit/tokens` (Web Crypto only). The portal secret
+ * is an **arbitrary string** — it is fed to the HMAC as raw UTF-8 bytes — or a
+ * list of them for rotation (the first signs, any verifies). An empty secret is
+ * rejected.
  *
  * @module
  */
 
+import { createScopedTokens, type TokenSecret } from "@xtandard/kit/tokens";
 import type { AuditAction } from "./authorization/contract.ts";
-import { durationToMs } from "./duration.ts";
-import { base64urlDecode, base64urlEncode } from "./integrity.ts";
 import { normalizeQuery, matchesQuery } from "./query.ts";
 import type { AuditDuration, AuditEvent, AuditQuery } from "./schema.ts";
 
 /** Prefix of every portal token. */
 export const PORTAL_TOKEN_PREFIX = "audpt_";
-
-const DEFAULT_EXPIRES_IN: AuditDuration = "1h";
 
 /**
  * The default portal grant: browse, export and verify the tenant's own log,
@@ -63,17 +62,6 @@ export interface PortalFilter {
   targetId?: string;
 }
 
-/**
- * Thrown by {@link verifyPortalToken} for any invalid token — malformed,
- * bad signature, or expired. Maps to HTTP 401 at the API layer.
- */
-export class PortalTokenError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PortalTokenError";
-  }
-}
-
 /** Options for {@link createPortalToken}. */
 export interface PortalTokenOptions {
   /** Token lifetime. Default `"1h"` (an audit portal is a read session). */
@@ -90,35 +78,6 @@ export interface PortalGrant {
   expiresAt: number;
   /** The token's view filter, when it has one. */
   filter?: PortalFilter;
-}
-
-/** The claims carried inside a portal token. */
-interface PortalTokenClaims {
-  tenant: string;
-  /** Expiry, unix epoch milliseconds. */
-  exp: number;
-  filter?: PortalFilter;
-}
-
-/** HMAC-SHA256 keyed by the raw UTF-8 bytes of the (arbitrary-string) secret. */
-async function hmac(secret: string, content: string): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret) as BufferSource,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(content));
-  return new Uint8Array(digest);
-}
-
-/** Constant-time byte comparison (XOR accumulate — no early exit on content). */
-function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= (a[i] as number) ^ (b[i] as number);
-  return diff === 0;
 }
 
 const isStringArray = (v: unknown): v is string[] =>
@@ -138,6 +97,29 @@ function cleanFilter(input: unknown): PortalFilter | undefined {
   return Object.keys(out).length ? out : undefined;
 }
 
+/** The portal token mechanics: `audpt_` prefix, 1-hour default lifetime, `{ tenant, filter? }` claims. */
+const portalTokens = createScopedTokens<{ tenant: string; filter?: PortalFilter }>({
+  prefix: PORTAL_TOKEN_PREFIX,
+  ttl: "1h",
+  label: "portal token",
+  errorName: "PortalTokenError",
+  validateClaims: (payload) => {
+    if (typeof payload.tenant !== "string" || payload.tenant.length === 0) {
+      throw new Error("missing tenant");
+    }
+    const filter = cleanFilter(payload.filter);
+    return { tenant: payload.tenant, ...(filter ? { filter } : {}) };
+  },
+});
+
+/**
+ * Thrown by {@link verifyPortalToken} for any invalid token — malformed,
+ * bad signature, or expired. Maps to HTTP 401 at the API layer.
+ */
+export const PortalTokenError = portalTokens.TokenError;
+/** An invalid portal token (see the {@link PortalTokenError} class). */
+export type PortalTokenError = InstanceType<typeof PortalTokenError>;
+
 /**
  * Mint a portal token granting read access to `tenant`'s log until
  * `expiresIn` elapses (default 1 hour). Call this **server-side** — anyone
@@ -156,21 +138,17 @@ function cleanFilter(input: unknown): PortalFilter | undefined {
  * ```
  */
 export async function createPortalToken(
-  secret: string,
+  secret: TokenSecret,
   tenant: string,
   options: PortalTokenOptions = {},
 ): Promise<string> {
   if (!tenant) throw new TypeError("createPortalToken requires a tenant");
-  const expiresInMs = durationToMs(options.expiresIn ?? DEFAULT_EXPIRES_IN);
-  const filter = cleanFilter(options.filter);
-  const claims: PortalTokenClaims = {
-    tenant,
-    exp: Date.now() + expiresInMs,
-    ...(filter ? { filter } : {}),
-  };
-  const payloadPart = base64urlEncode(new TextEncoder().encode(JSON.stringify(claims)));
-  const signature = base64urlEncode(await hmac(secret, payloadPart));
-  return `${PORTAL_TOKEN_PREFIX}${payloadPart}.${signature}`;
+  // `create` signs what `validateClaims` returns: the cleaned filter (an empty one is dropped).
+  return portalTokens.create(
+    secret,
+    { tenant, ...(options.filter ? { filter: options.filter } : {}) },
+    { expiresIn: options.expiresIn },
+  );
 }
 
 /**
@@ -184,47 +162,9 @@ export async function createPortalToken(
  * const { tenant, filter } = await verifyPortalToken(secret, token);
  * ```
  */
-export async function verifyPortalToken(secret: string, token: string): Promise<PortalGrant> {
-  if (!token.startsWith(PORTAL_TOKEN_PREFIX)) {
-    throw new PortalTokenError("Invalid portal token: missing audpt_ prefix");
-  }
-  const parts = token.slice(PORTAL_TOKEN_PREFIX.length).split(".");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new PortalTokenError("Invalid portal token: malformed");
-  }
-  const [payloadPart, signaturePart] = parts as [string, string];
-
-  // Signature first: never interpret unauthenticated claims.
-  let candidate: Uint8Array;
-  try {
-    candidate = base64urlDecode(signaturePart);
-  } catch {
-    throw new PortalTokenError("Invalid portal token: malformed signature");
-  }
-  const expected = await hmac(secret, payloadPart);
-  if (!timingSafeEqual(expected, candidate)) {
-    throw new PortalTokenError("Invalid portal token: signature mismatch");
-  }
-
-  let claims: PortalTokenClaims;
-  try {
-    claims = JSON.parse(
-      new TextDecoder().decode(base64urlDecode(payloadPart)),
-    ) as PortalTokenClaims;
-  } catch {
-    throw new PortalTokenError("Invalid portal token: malformed payload");
-  }
-  if (typeof claims.tenant !== "string" || claims.tenant.length === 0) {
-    throw new PortalTokenError("Invalid portal token: missing tenant");
-  }
-  if (typeof claims.exp !== "number" || !Number.isFinite(claims.exp)) {
-    throw new PortalTokenError("Invalid portal token: missing expiry");
-  }
-  if (Date.now() >= claims.exp) {
-    throw new PortalTokenError("Portal token has expired");
-  }
-  const filter = cleanFilter(claims.filter);
-  return { tenant: claims.tenant, expiresAt: claims.exp, ...(filter ? { filter } : {}) };
+export async function verifyPortalToken(secret: TokenSecret, token: string): Promise<PortalGrant> {
+  const { claims, expiresAt } = await portalTokens.verify(secret, token);
+  return { ...claims, expiresAt };
 }
 
 // ---- filter narrowing --------------------------------------------------------------------------

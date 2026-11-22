@@ -1,5 +1,5 @@
 /**
- * Drizzle storage adapter — a {@link AuditStorage} over **consumer-owned**
+ * Drizzle storage adapter — an `AuditStorage` over **consumer-owned**
  * Drizzle tables and database. Unlike {@link ./postgres.createPostgresStorage}
  * it issues **no DDL** (the tables live in your Drizzle schema + migrations)
  * and **owns no connection** (it reuses the `db` you pass, and never closes it).
@@ -8,13 +8,17 @@
  * Build the tables with the matching factory —
  * {@link ../drizzle/pg.pgAuditTables} / {@link ../drizzle/mysql.mysqlAuditTables} /
  * {@link ../drizzle/sqlite.sqliteAuditTables} (or the per-table factories).
- * Control data goes to the KV `table`; when you also pass `events` and
+ * Control data goes to the KV `table` through `@xtandard/kit/storage/drizzle`
+ * (canonical JSON, `compareAndSwap` on every dialect, literal prefixes; on
+ * MySQL, keys are matched byte-exactly and a write whose key differs from a
+ * stored one only by trailing spaces throws `KeyCollisionError`); when you also pass `events` and
  * `eventTargets`, the adapter implements the **native event log** (ADR 0005):
  * indexed queries compiled with Drizzle's query builder, and appends in one
  * transaction that checks the tenant's head seq. Without them it is KV-only and
  * the core falls back to its generic KV event log.
  *
- * Transactions use `db.transaction`: async callbacks on Postgres, MySQL and
+ * The dialect is read from `db` (or set with `dialect`), and `drizzle-orm` is
+ * loaded on first use. Transactions use `db.transaction`: async callbacks on Postgres, MySQL and
  * async SQLite drivers (libSQL), a synchronous `immediate` transaction on sync
  * SQLite drivers (`bun:sqlite`, `better-sqlite3`). Drivers without
  * transactions (e.g. `neon-http`) cannot use the native event log.
@@ -44,31 +48,12 @@
  * @module
  */
 
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  exists,
-  gt,
-  gte,
-  inArray,
-  is,
-  lt,
-  lte,
-  max,
-  not,
-  notInArray,
-  or,
-  sql,
-  type Column,
-  type SQL,
-  type Table,
-} from "drizzle-orm";
-import { SQLiteTable } from "drizzle-orm/sqlite-core";
+import { importPeer } from "@xtandard/kit/storage";
+import * as kit from "@xtandard/kit/storage/drizzle";
+import { detectDrizzleDialect, type DrizzleDialect } from "@xtandard/kit/storage/drizzle/internals";
+import type { SQL, Table } from "drizzle-orm";
 import type { NormalizedQuery } from "../query.ts";
-import { ChainConflictError, type AuditStorage, type EventLogStorage } from "./contract.ts";
+import { ChainConflictError, type EventLogStorage } from "./contract.ts";
 import {
   assertContiguous,
   escapeGlob,
@@ -80,11 +65,7 @@ import {
   toQueryResult,
   type EventLogMethods,
 } from "./sql.ts";
-import type {
-  DrizzleEventTargetsTable,
-  DrizzleEventsTable,
-  DrizzleKvTable,
-} from "../drizzle/table.ts";
+import type { DrizzleEventTargetsTable, DrizzleEventsTable } from "../drizzle/table.ts";
 
 export type {
   DrizzleAuditTables,
@@ -92,32 +73,9 @@ export type {
   DrizzleEventsTable,
   DrizzleKvTable,
 } from "../drizzle/table.ts";
+export { KeyCollisionError, type DrizzleDialect } from "@xtandard/kit/storage/drizzle";
 
-/**
- * Minimal structural view of a Drizzle database — the query-builder entry points
- * the KV adapter uses. This is the internal contract the adapter casts `db` to;
- * the public option is typed `unknown` because a dialect-agnostic structural type
- * cannot match dialect-specific dbs (their `.from`/`.insert` want `PgTable` etc.,
- * not the base `Table`). The upsert method differs by dialect and is
- * feature-detected at runtime.
- */
-interface DrizzleLikeDatabase {
-  select(fields: Record<string, Column>): {
-    from(table: Table): { where(where: SQL): PromiseLike<unknown[]> };
-  };
-  insert(table: Table): {
-    values(row: { key: string; value: unknown }): {
-      /** Postgres + SQLite upsert. */
-      onConflictDoUpdate?(config: {
-        target: Column;
-        set: { value: unknown };
-      }): PromiseLike<unknown>;
-      /** MySQL upsert. */
-      onDuplicateKeyUpdate?(config: { set: { value: unknown } }): PromiseLike<unknown>;
-    };
-  };
-  delete(table: Table): { where(where: SQL): PromiseLike<unknown> };
-}
+const SUBPATH = "@xtandard/audit/storage/drizzle";
 
 /**
  * A Drizzle query builder as the event log uses it: chainable, awaitable, and
@@ -141,16 +99,7 @@ interface DrizzleEventLogDatabase {
 }
 
 /** Options for {@link createDrizzleStorage}. */
-export interface DrizzleStorageOptions {
-  /**
-   * Your Drizzle database (node-postgres / mysql2 / better-sqlite3 / pglite / …).
-   * Typed `unknown` intentionally — a single dialect-agnostic type can't match
-   * every dialect's db; the adapter only calls the query builder and
-   * `transaction`.
-   */
-  db: unknown;
-  /** The KV table built with a `*AuditTable` factory (or matching that shape). */
-  table: DrizzleKvTable;
+export interface DrizzleStorageOptions extends kit.DrizzleStorageOptions {
   /** The events table (`*AuditEventsTable`). Pass with `eventTargets` for the native event log. */
   events?: DrizzleEventsTable;
   /** The event-targets table (`*AuditEventTargetsTable`). */
@@ -158,30 +107,32 @@ export interface DrizzleStorageOptions {
 }
 
 /**
- * A KV-only {@link AuditStorage} over a Drizzle table. For push
+ * A KV-only, compare-and-swap capable `AuditStorage` over a Drizzle table. For push
  * change-notifications, compose it with {@link ./watch.withWatch} + a change
  * source (e.g. {@link ./watch.pgListenNotify}) — `watch` is orthogonal to the
  * adapter.
  */
-export type DrizzleAuditStorage = AuditStorage;
+export type DrizzleAuditStorage = kit.DrizzleKvStorage;
 
-/** A Drizzle storage with the native {@link EventLogStorage} capability. */
-export type DrizzleEventLogAuditStorage = EventLogStorage;
+/** A Drizzle storage with the native {@link EventLogStorage} capability (and `compareAndSwap`). */
+export type DrizzleEventLogAuditStorage = EventLogStorage & kit.DrizzleKvStorage;
 
 /** Rows per INSERT statement (keeps every dialect well under its bind-parameter limit). */
 const INSERT_CHUNK = 500;
 
-/** Parse a value defensively — Drizzle returns json parsed, but a string is parsed too. */
-const parseValue = <T>(value: unknown): T => {
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return value as T;
-    }
-  }
-  return value as T;
-};
+type DrizzleOrm = typeof import("drizzle-orm");
+let orm: Promise<DrizzleOrm> | undefined;
+
+/** `drizzle-orm`, imported once on first use (a failed import is retried). */
+function drizzleOrm(): Promise<DrizzleOrm> {
+  orm ??= importPeer("drizzle-orm", SUBPATH, () => import("drizzle-orm")).catch(
+    (error: unknown) => {
+      orm = undefined;
+      throw error;
+    },
+  );
+  return orm;
+}
 
 function chunks<T>(list: T[]): T[][] {
   const out: T[][] = [];
@@ -190,9 +141,8 @@ function chunks<T>(list: T[]): T[][] {
 }
 
 /**
- * Create a Drizzle-backed storage. No DDL, no connection ownership. The upsert
- * dialect (Postgres/SQLite `onConflictDoUpdate` vs MySQL `onDuplicateKeyUpdate`)
- * is detected at runtime from the insert builder. With `events` +
+ * Create a Drizzle-backed storage. No DDL, no connection ownership. The
+ * dialect is detected from `db` (or set with `dialect`). With `events` +
  * `eventTargets` the result implements the native event log.
  */
 export function createDrizzleStorage(
@@ -205,58 +155,17 @@ export function createDrizzleStorage(options: DrizzleStorageOptions): DrizzleAud
 export function createDrizzleStorage(
   options: DrizzleStorageOptions,
 ): DrizzleAuditStorage | DrizzleEventLogAuditStorage {
-  const db = options.db as DrizzleLikeDatabase;
-  const { table } = options;
   if (!options.events !== !options.eventTargets) {
     throw new Error("createDrizzleStorage: pass both `events` and `eventTargets`, or neither");
   }
-
-  const kv: AuditStorage = {
-    async getItem<T>(key: string): Promise<T | null> {
-      const rows = (await db
-        .select({ value: table.value })
-        .from(table)
-        .where(eq(table.key, key))) as Array<{ value: unknown }>;
-      const row = rows[0];
-      if (row === undefined || row.value === null || row.value === undefined) return null;
-      return parseValue<T>(row.value);
-    },
-
-    async setItem<T>(key: string, value: T): Promise<void> {
-      const insert = db.insert(table).values({ key, value });
-      if (typeof insert.onConflictDoUpdate === "function") {
-        await insert.onConflictDoUpdate({ target: table.key, set: { value } });
-      } else if (typeof insert.onDuplicateKeyUpdate === "function") {
-        await insert.onDuplicateKeyUpdate({ set: { value } });
-      } else {
-        throw new Error(
-          "createDrizzleStorage: the Drizzle database exposes no known upsert method " +
-            "(onConflictDoUpdate / onDuplicateKeyUpdate).",
-        );
-      }
-    },
-
-    async removeItem(key: string): Promise<void> {
-      await db.delete(table).where(eq(table.key, key));
-    },
-
-    async getKeys(prefix: string): Promise<string[]> {
-      // `!` as the LIKE escape: a backslash literal is not portable (MySQL eats it).
-      const pattern = `${escapeLike(prefix)}%`;
-      const rows = (await db
-        .select({ key: table.key })
-        .from(table)
-        .where(sql`${table.key} like ${pattern} escape '!'`)) as Array<{ key: unknown }>;
-      // SQLite LIKE folds case and MySQL collations may too: keep only exact prefix matches.
-      return rows.map((row) => String(row.key)).filter((key) => key.startsWith(prefix));
-    },
-  };
-
+  const dialect = options.dialect ?? detectDrizzleDialect(options.db, SUBPATH);
+  const kv = kit.createDrizzleStorage({ subpath: SUBPATH, ...options, dialect });
   if (!options.events || !options.eventTargets) return kv;
   return {
     ...kv,
     ...createDrizzleEventLog(
       options.db as DrizzleEventLogDatabase,
+      dialect,
       options.events,
       options.eventTargets,
     ),
@@ -266,16 +175,16 @@ export function createDrizzleStorage(
 /** The native event log over Drizzle's query builder. */
 function createDrizzleEventLog(
   db: DrizzleEventLogDatabase,
+  dialect: DrizzleDialect,
   ev: DrizzleEventsTable,
   tg: DrizzleEventTargetsTable,
 ): EventLogMethods {
   const sync = db.resultKind === "sync";
   // SQLite's LIKE folds ASCII case; GLOB is case-sensitive like the in-memory matcher.
-  const sqlite = is(ev as object, SQLiteTable); // (not `is(ev, …)`: that would narrow `ev`)
-  const actionPrefix = (pre: string): SQL =>
-    sqlite
-      ? sql`${ev.action} glob ${`${escapeGlob(pre)}*`}`
-      : sql`${ev.action} like ${`${escapeLike(pre)}%`} escape '!'`;
+  const actionPrefix = (d: DrizzleOrm, pre: string): SQL =>
+    dialect === "sqlite"
+      ? d.sql`${ev.action} glob ${`${escapeGlob(pre)}*`}`
+      : d.sql`${ev.action} like ${`${escapeLike(pre)}%`} escape '!'`;
 
   type Row = Record<string, unknown>;
 
@@ -305,67 +214,70 @@ function createDrizzleEventLog(
     })) as Row[];
   }
 
-  const one = async (where: SQL, order?: SQL) => {
-    let q = db.select({ data: ev.data }).from(ev).where(where);
-    if (order) q = q.orderBy(order);
+  /** The first row's event for `where`, in `order`. */
+  const one = async (where: (d: DrizzleOrm) => SQL | undefined, order?: (d: DrizzleOrm) => SQL) => {
+    const d = await drizzleOrm();
+    let q = db.select({ data: ev.data }).from(ev).where(where(d));
+    if (order) q = q.orderBy(order(d));
     const [row] = (await q.limit(1)) as Row[];
     return row ? parseEvent(row.data) : null;
   };
 
-  function whereFor(q: NormalizedQuery): SQL | undefined {
+  function whereFor(d: DrizzleOrm, q: NormalizedQuery): SQL | undefined {
     const conds: (SQL | undefined)[] = [];
-    if (q.tenant !== undefined) conds.push(eq(ev.tenant, q.tenant));
+    if (q.tenant !== undefined) conds.push(d.eq(ev.tenant, q.tenant));
     if (q.actions.length > 0 || q.actionPrefixes.length > 0) {
       conds.push(
-        or(
-          q.actions.length > 0 ? inArray(ev.action, q.actions) : undefined,
-          ...q.actionPrefixes.map(actionPrefix),
+        d.or(
+          q.actions.length > 0 ? d.inArray(ev.action, q.actions) : undefined,
+          ...q.actionPrefixes.map((pre) => actionPrefix(d, pre)),
         ),
       );
     }
-    if (q.excludeActions.length > 0) conds.push(notInArray(ev.action, q.excludeActions));
-    for (const pre of q.excludeActionPrefixes) conds.push(not(actionPrefix(pre)));
-    if (q.actorId !== undefined) conds.push(eq(ev.actorId, q.actorId));
-    if (q.actorType !== undefined) conds.push(eq(ev.actorType, q.actorType));
+    if (q.excludeActions.length > 0) conds.push(d.notInArray(ev.action, q.excludeActions));
+    for (const pre of q.excludeActionPrefixes) conds.push(d.not(actionPrefix(d, pre)));
+    if (q.actorId !== undefined) conds.push(d.eq(ev.actorId, q.actorId));
+    if (q.actorType !== undefined) conds.push(d.eq(ev.actorType, q.actorType));
     if (q.targetType !== undefined || q.targetId !== undefined) {
       conds.push(
-        exists(
+        d.exists(
           db
-            .select({ one: sql`1` })
+            .select({ one: d.sql`1` })
             .from(tg)
             .where(
-              and(
-                eq(tg.tenant, ev.tenant),
-                eq(tg.seq, ev.seq),
-                q.targetType !== undefined ? eq(tg.type, q.targetType) : undefined,
-                q.targetId !== undefined ? eq(tg.targetId, q.targetId) : undefined,
+              d.and(
+                d.eq(tg.tenant, ev.tenant),
+                d.eq(tg.seq, ev.seq),
+                q.targetType !== undefined ? d.eq(tg.type, q.targetType) : undefined,
+                q.targetId !== undefined ? d.eq(tg.targetId, q.targetId) : undefined,
               ),
             ),
         ),
       );
     }
-    if (q.outcome !== undefined) conds.push(eq(ev.outcome, q.outcome));
-    if (q.from !== undefined) conds.push(gte(ev.occurredAt, q.from));
-    if (q.to !== undefined) conds.push(lt(ev.occurredAt, q.to));
+    if (q.outcome !== undefined) conds.push(d.eq(ev.outcome, q.outcome));
+    if (q.from !== undefined) conds.push(d.gte(ev.occurredAt, q.from));
+    if (q.to !== undefined) conds.push(d.lt(ev.occurredAt, q.to));
     if (q.search !== undefined) {
-      conds.push(sql`${ev.search} like ${`%${escapeLike(q.search)}%`} escape '!'`);
+      conds.push(d.sql`${ev.search} like ${`%${escapeLike(q.search)}%`} escape '!'`);
     }
     if (q.after) {
-      const cmp = q.order === "desc" ? lt : gt;
+      const cmp = q.order === "desc" ? d.lt : d.gt;
       conds.push(
-        or(
+        d.or(
           cmp(ev.occurredAt, q.after.occurredAt),
-          and(eq(ev.occurredAt, q.after.occurredAt), cmp(ev.id, q.after.id)),
+          d.and(d.eq(ev.occurredAt, q.after.occurredAt), cmp(ev.id, q.after.id)),
         ),
       );
     }
-    return and(...conds);
+    return d.and(...conds);
   }
 
   return {
     async appendEvents(tenant, events, { expectedSeq }) {
       if (events.length === 0) return;
       assertContiguous(tenant, events, expectedSeq);
+      const d = await drizzleOrm();
       const eventRows = events.map((e) => ({ ...eventColumns(e), data: e }));
       const targetRows = events.flatMap((e) =>
         eventTargets(e).map((t) => ({ tenant, seq: e.seq, type: t.type, targetId: t.targetId })),
@@ -374,9 +286,9 @@ function createDrizzleEventLog(
         await atomic(
           (tx) =>
             tx
-              .select({ m: max(ev.seq) })
+              .select({ m: d.max(ev.seq) })
               .from(ev)
-              .where(eq(ev.tenant, tenant)),
+              .where(d.eq(ev.tenant, tenant)),
           (tx, rows) => {
             // The tenant's head must be the expected one (or empty, e.g. after a full prune).
             const head = Number(rows[0]?.m ?? 0);
@@ -396,34 +308,41 @@ function createDrizzleEventLog(
       }
     },
 
-    getEvent: (tenant, id) => one(and(eq(ev.tenant, tenant), eq(ev.id, id))!),
+    getEvent: (tenant, id) => one((d) => d.and(d.eq(ev.tenant, tenant), d.eq(ev.id, id))),
 
-    lastEvent: (tenant) => one(eq(ev.tenant, tenant), desc(ev.seq)),
+    lastEvent: (tenant) =>
+      one(
+        (d) => d.eq(ev.tenant, tenant),
+        (d) => d.desc(ev.seq),
+      ),
 
     async eventsBySeq(tenant, { afterSeq, limit }) {
+      const d = await drizzleOrm();
       const rows = (await db
         .select({ data: ev.data })
         .from(ev)
-        .where(and(eq(ev.tenant, tenant), gt(ev.seq, afterSeq)))
-        .orderBy(asc(ev.seq))
+        .where(d.and(d.eq(ev.tenant, tenant), d.gt(ev.seq, afterSeq)))
+        .orderBy(d.asc(ev.seq))
         .limit(limit)) as Row[];
       return rows.map((r) => parseEvent(r.data));
     },
 
     async queryEvents(q) {
-      const dir = q.order === "desc" ? desc : asc;
+      const d = await drizzleOrm();
+      const dir = q.order === "desc" ? d.desc : d.asc;
       const rows = (await db
         .select({ data: ev.data })
         .from(ev)
-        .where(whereFor(q))
+        .where(whereFor(d, q))
         .orderBy(dir(ev.occurredAt), dir(ev.id))
         .limit(q.limit + 1)) as Row[];
       return toQueryResult(rows, q.limit);
     },
 
     async replaceEvent(event) {
+      const d = await drizzleOrm();
       const c = eventColumns(event);
-      const key = and(eq(ev.tenant, c.tenant), eq(ev.seq, c.seq), eq(ev.id, c.id));
+      const key = d.and(d.eq(ev.tenant, c.tenant), d.eq(ev.seq, c.seq), d.eq(ev.id, c.id));
       const targets = eventTargets(event).map((t) => ({
         tenant: c.tenant,
         seq: c.seq,
@@ -449,39 +368,42 @@ function createDrizzleEventLog(
                     data: event,
                   })
                   .where(key),
-                tx.delete(tg).where(and(eq(tg.tenant, c.tenant), eq(tg.seq, c.seq))),
+                tx.delete(tg).where(d.and(d.eq(tg.tenant, c.tenant), d.eq(tg.seq, c.seq))),
                 ...(targets.length > 0 ? [tx.insert(tg).values(targets)] : []),
               ],
       );
     },
 
     async deleteEventsThrough(tenant, throughSeq) {
+      const d = await drizzleOrm();
       const [row] = await atomic(
         (tx) =>
           tx
-            .select({ n: count() })
+            .select({ n: d.count() })
             .from(ev)
-            .where(and(eq(ev.tenant, tenant), lte(ev.seq, throughSeq))),
+            .where(d.and(d.eq(ev.tenant, tenant), d.lte(ev.seq, throughSeq))),
         (tx) => [
-          tx.delete(tg).where(and(eq(tg.tenant, tenant), lte(tg.seq, throughSeq))),
-          tx.delete(ev).where(and(eq(ev.tenant, tenant), lte(ev.seq, throughSeq))),
+          tx.delete(tg).where(d.and(d.eq(tg.tenant, tenant), d.lte(tg.seq, throughSeq))),
+          tx.delete(ev).where(d.and(d.eq(ev.tenant, tenant), d.lte(ev.seq, throughSeq))),
         ],
       );
       return Number(row?.n ?? 0);
     },
 
     async countEvents(tenant) {
-      let q = db.select({ n: count() }).from(ev);
-      if (tenant !== undefined) q = q.where(eq(ev.tenant, tenant));
+      const d = await drizzleOrm();
+      let q = db.select({ n: d.count() }).from(ev);
+      if (tenant !== undefined) q = q.where(d.eq(ev.tenant, tenant));
       const [row] = (await q) as Row[];
       return Number(row?.n ?? 0);
     },
 
     async listEventTenants() {
+      const d = await drizzleOrm();
       const rows = (await db
         .selectDistinct({ tenant: ev.tenant })
         .from(ev)
-        .orderBy(asc(ev.tenant))) as Row[];
+        .orderBy(d.asc(ev.tenant))) as Row[];
       return rows.map((r) => String(r.tenant));
     },
   };
