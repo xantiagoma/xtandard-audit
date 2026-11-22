@@ -496,7 +496,7 @@
     "brand:check": "sh scripts/brand-assets.sh --check"
   },
   "dependencies": {
-    "@xtandard/kit": "file:/Users/santi/Projects/xtandard-kit-wt-pilot/pack/xtandard-kit-0.1.0.tgz",
+    "@xtandard/kit": "^0.1.1",
     "valibot": "^1.0.0",
     "wouter": "^3.10.0"
   },

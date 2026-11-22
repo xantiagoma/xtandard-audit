@@ -74,9 +74,9 @@ export interface LibsqlResultLike {
 
 /**
  * Minimal structural view of the `@libsql/client` surface this adapter uses:
- * the kit's (`execute`, `close`) plus `batch`, which the event log needs.
+ * `execute`, `close` and `batch`, which the event log needs.
  */
-export interface LibsqlClientLike extends kit.LibsqlClientLike {
+export interface LibsqlClientLike {
   execute(stmt: string | { sql: string; args: unknown[] }): Promise<LibsqlResultLike>;
   /** Run statements in one transaction (`"write"` mode); resolves to one result per statement. */
   batch(
@@ -105,17 +105,19 @@ export interface LibsqlClientLike extends kit.LibsqlClientLike {
 export function createLibsqlStorage(options: LibsqlStorageOptions): LibsqlAuditStorage {
   const table = assertSafeIdentifier(options.table ?? "xtandard_audit");
   const connection = libsqlConnection(
-    options,
+    // Audit's client type allows a result without `rowsAffected` (read as 0 below).
+    options as Pick<kit.LibsqlStorageOptions, "url" | "authToken" | "client">,
     [sqliteKvSchema(table), ...eventLogDdl("sqlite", table)],
     options.subpath ?? "@xtandard/audit/storage/libsql",
   );
   const exec = async (): Promise<SqliteExecutor> => {
     // A client created from `url` is a real `@libsql/client` client, which has `batch`.
-    const client = (await connection.get()) as LibsqlClientLike;
+    const raw = await connection.get();
+    const client = raw as LibsqlClientLike;
     return {
-      ...libsqlExecutor(client),
+      ...libsqlExecutor(raw),
       async atomic(statements) {
-        const results = await client.batch(statements, "write");
+        const results = await client.batch([...statements], "write");
         return results.map((r) => r.rowsAffected ?? 0);
       },
     };
