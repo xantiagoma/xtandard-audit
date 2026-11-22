@@ -15,10 +15,7 @@
  * @module
  */
 
-import {
-  canonicalStringify as kitCanonicalStringify,
-  type JsonValue as KitJsonValue,
-} from "@xtandard/kit/util";
+import { canonicalStringify as kitCanonicalStringify } from "@xtandard/kit/util";
 import type { JsonValue } from "./schema.ts";
 
 /**
@@ -32,6 +29,5 @@ import type { JsonValue } from "./schema.ts";
  * ```
  */
 export function canonicalStringify(value: JsonValue | undefined): string {
-  // Audit's `JsonValue` allows `undefined` members, which the kit's type omits (and drops alike).
-  return kitCanonicalStringify(value as KitJsonValue | undefined);
+  return kitCanonicalStringify(value);
 }

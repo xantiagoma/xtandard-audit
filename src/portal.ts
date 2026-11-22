@@ -143,11 +143,10 @@ export async function createPortalToken(
   options: PortalTokenOptions = {},
 ): Promise<string> {
   if (!tenant) throw new TypeError("createPortalToken requires a tenant");
-  // The token carries the cleaned filter only (an empty one is dropped).
-  const filter = cleanFilter(options.filter);
+  // `create` signs what `validateClaims` returns: the cleaned filter (an empty one is dropped).
   return portalTokens.create(
     secret,
-    { tenant, ...(filter ? { filter } : {}) },
+    { tenant, ...(options.filter ? { filter: options.filter } : {}) },
     { expiresIn: options.expiresIn },
   );
 }
