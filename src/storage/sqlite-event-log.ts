@@ -24,13 +24,12 @@ import {
 } from "./sql.ts";
 
 /**
- * The executor a SQLite-dialect driver provides: the kit's `all` (which the KV
- * core runs on too), plus `atomic` running statements in one write transaction
- * (all or nothing), resolving to each statement's affected-row count.
+ * The executor a SQLite-dialect driver provides: the kit's, with `atomic` (all
+ * or nothing, each statement's affected-row count) required. The kit's
+ * `bunSqliteExecutor` (`BEGIN IMMEDIATE`) and `libsqlExecutor` (a write `batch`)
+ * implement it.
  */
-export interface SqliteExecutor extends KvExecutor {
-  atomic(statements: SqlStatement[]): Promise<number[]>;
-}
+export type SqliteExecutor = Required<KvExecutor>;
 
 /**
  * The native event log over a SQLite-dialect {@link SqliteExecutor}.

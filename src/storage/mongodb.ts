@@ -49,6 +49,7 @@ import type { CompareAndSwapKvStorage } from "@xtandard/kit/storage";
 import { escapeRegex } from "@xtandard/kit/storage";
 import type * as kit from "@xtandard/kit/storage/mongodb";
 import {
+  isDuplicateKey,
   mongoConnection,
   mongoKvStorage,
   type KvDocument,
@@ -91,13 +92,6 @@ const EVENT_PROJECTION = { _id: 0, search: 0 } as const;
 const startsWith = (prefix: string): RegExp => new RegExp(`^${escapeRegex(prefix)}`);
 
 const toDoc = (event: AuditEvent): EventDoc => ({ ...event, search: searchText(event) });
-
-/** Is this a duplicate-key (E11000) error, top-level or inside a bulk write? */
-function isDuplicateKey(error: unknown): boolean {
-  const e = error as { code?: number; writeErrors?: Array<{ code?: number }> } | null;
-  if (e?.code === 11000) return true;
-  return Array.isArray(e?.writeErrors) && e.writeErrors.some((w) => w.code === 11000);
-}
 
 /**
  * Compile a {@link NormalizedQuery} to a Mongo filter that agrees exactly with

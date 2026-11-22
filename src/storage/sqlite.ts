@@ -21,7 +21,6 @@
  * @module
  */
 
-import type { Database } from "bun:sqlite";
 import type { CompareAndSwapKvStorage } from "@xtandard/kit/storage";
 import type * as kit from "@xtandard/kit/storage/sqlite";
 import {
@@ -32,7 +31,7 @@ import {
 } from "@xtandard/kit/storage/sqlite/internals";
 import type { EventLogStorage } from "./contract.ts";
 import { createSqliteEventLog, type SqliteExecutor } from "./sqlite-event-log.ts";
-import { assertSafeIdentifier, eventLogDdl, type SqlStatement } from "./sql.ts";
+import { assertSafeIdentifier, eventLogDdl } from "./sql.ts";
 
 /**
  * Options for {@link createSqliteStorage}: a file `path` (default `":memory:"`)
@@ -49,22 +48,6 @@ export type SqliteStorageOptions = kit.SqliteStorageOptions;
 export interface SqliteAuditStorage extends EventLogStorage, CompareAndSwapKvStorage {
   /** Close the database if this adapter opened it; no-op for a borrowed instance. */
   close(): void;
-}
-
-type Binding = string | number | bigint | boolean | null | Uint8Array;
-
-/** The event-log executor over a `bun:sqlite` database: `BEGIN IMMEDIATE` write transactions. */
-function eventExecutor(db: Database): SqliteExecutor {
-  // Synchronous under the hood: a transaction can never interleave with another call.
-  const atomic = db.transaction((statements: SqlStatement[]) =>
-    statements.map((s) => db.query(s.sql).run(...(s.args as Binding[])).changes),
-  );
-  return {
-    ...bunSqliteExecutor(db),
-    async atomic(statements) {
-      return atomic.immediate(statements);
-    },
-  };
 }
 
 /**
@@ -91,10 +74,14 @@ export function createSqliteStorage(options: SqliteStorageOptions = {}): SqliteA
   );
   let executor: Promise<SqliteExecutor> | undefined;
   const exec = () =>
-    (executor ??= connection.get().then(eventExecutor, (error: unknown) => {
-      executor = undefined; // a failed open or DDL is retried on the next call
-      throw error;
-    }));
+    (executor ??= connection.get().then(
+      // `BEGIN IMMEDIATE` write transactions for the event log's `atomic` appends.
+      (db) => bunSqliteExecutor(db) as SqliteExecutor,
+      (error: unknown) => {
+        executor = undefined; // a failed open or DDL is retried on the next call
+        throw error;
+      },
+    ));
 
   return {
     ...sqliteKvStorage(table, exec),
