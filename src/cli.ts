@@ -25,6 +25,7 @@ import {
   pkgVersion as kitPkgVersion,
   serve,
   storageFromEnv,
+  storageRegistryFrom,
   type ParsedArgs,
   type StorageRegistry,
   type StorageRole,
@@ -90,40 +91,18 @@ const STORAGE_ROLE: StorageRole = {
 /**
  * The audit storage factories, so every CLI store carries the native event log
  * (memory, sqlite, libsql, postgres, mongodb) and the audit defaults. Each
- * driver module loads on first use.
+ * driver module loads on first use; sqlite requires running the CLI under Bun
+ * (`bunx xtandard-audit …`).
  */
-const STORAGE_DRIVERS: StorageRegistry<AuditStorage> = {
-  memory: async () => (await import("./storage/memory.ts")).createMemoryStorage(),
-  file: async (c) => (await import("./storage/file.ts")).createFileStorage({ dir: c.fileDir! }),
-  redis: async (c) =>
-    (await import("./storage/redis.ts")).createRedisStorage({
-      url: c.redisUrl,
-      ...(c.prefix ? { prefix: c.prefix } : {}),
-    }),
-  postgres: async (c) =>
-    (await import("./storage/postgres.ts")).createPostgresStorage({
-      connectionString: c.postgresUrl,
-      ...(c.pgTable ? { table: c.pgTable } : {}),
-    }),
-  mongodb: async (c) =>
-    (await import("./storage/mongodb.ts")).createMongoStorage({
-      url: c.mongoUrl,
-      ...(c.mongoDb ? { dbName: c.mongoDb } : {}),
-      ...(c.mongoCollection ? { collectionName: c.mongoCollection } : {}),
-    }),
-  // Requires running the CLI under Bun (`bunx xtandard-audit …`).
-  sqlite: async (c) =>
-    (await import("./storage/sqlite.ts")).createSqliteStorage({
-      ...(c.sqlitePath ? { path: c.sqlitePath } : {}),
-      ...(c.sqliteTable ? { table: c.sqliteTable } : {}),
-    }),
-  libsql: async (c) =>
-    (await import("./storage/libsql.ts")).createLibsqlStorage({
-      ...(c.libsqlUrl ? { url: c.libsqlUrl } : {}),
-      ...(c.libsqlAuthToken ? { authToken: c.libsqlAuthToken } : {}),
-      ...(c.sqliteTable ? { table: c.sqliteTable } : {}),
-    }),
-};
+const STORAGE_DRIVERS = storageRegistryFrom({
+  memory: () => import("./storage/memory.ts"),
+  file: () => import("./storage/file.ts"),
+  redis: () => import("./storage/redis.ts"),
+  postgres: () => import("./storage/postgres.ts"),
+  mongodb: () => import("./storage/mongodb.ts"),
+  sqlite: () => import("./storage/sqlite.ts"),
+  libsql: () => import("./storage/libsql.ts"),
+}) as StorageRegistry<AuditStorage>;
 
 const isFalsy = (value: string): boolean => value === "0" || value.toLowerCase() === "false";
 
