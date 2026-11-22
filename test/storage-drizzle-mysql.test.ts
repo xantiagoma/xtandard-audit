@@ -86,21 +86,21 @@ afterAll(async () => {
 }, 120_000);
 
 describe.skipIf(!available)("createDrizzleStorage (mysql, live)", () => {
-  // The KV conformance suite on a NO PAD key column (the kit's own MySQL setup): keys that differ
-  // only by trailing spaces are distinct there. The default (PAD SPACE) column is covered below.
+  // The KV conformance suite on the default key column (utf8mb4_bin, PAD SPACE): keys that differ
+  // only by trailing spaces collide there, so the case expects `KeyCollisionError` (padSpaceKeys).
   runStorageContractTests(
-    "drizzle (mysql, utf8mb4_0900_bin keys)",
-    async () => createDrizzleStorage(await freshTables("utf8mb4_0900_bin")),
+    "drizzle (mysql)",
+    async () => createDrizzleStorage(await freshTables()),
     {
       t: { describe, test, expect },
-      capabilities: { compareAndSwap: true, watch: false },
+      capabilities: { compareAndSwap: true, watch: false, padSpaceKeys: true },
       expectNativeEventLog: true,
       timeout: 30_000,
     },
   );
 
   test(
-    "the default utf8mb4_bin key refuses a trailing-space collision instead of overwriting",
+    "the default utf8mb4_bin key names the stored spelling in KeyCollisionError",
     { timeout: 30_000 },
     async () => {
       const storage = createDrizzleStorage(await freshTables());
@@ -108,8 +108,21 @@ describe.skipIf(!available)("createDrizzleStorage (mysql, live)", () => {
       const error = await storage.setItem("aud/k/a ", { v: 2 }).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(KeyCollisionError);
       expect((error as KeyCollisionError).storedKey).toBe("aud/k/a");
-      expect(await storage.getItem("aud/k/a")).toEqual({ v: 1 });
-      expect(await storage.getItem("aud/k/a ")).toBeNull();
+    },
+  );
+
+  test(
+    "a NO PAD key (utf8mb4_0900_bin) keeps keys differing by trailing spaces distinct",
+    { timeout: 30_000 },
+    async () => {
+      const storage = createDrizzleStorage(await freshTables("utf8mb4_0900_bin"));
+      const keys = ["aud/k/a", "aud/k/a ", "aud/k/a  "];
+      for (const [i, k] of keys.entries()) await storage.setItem(k, { i });
+      for (const [i, k] of keys.entries()) expect(await storage.getItem(k)).toEqual({ i });
+      expect((await storage.getKeys("aud/k/")).sort()).toEqual([...keys].sort());
+      await storage.removeItem("aud/k/a ");
+      expect(await storage.getItem("aud/k/a")).toEqual({ i: 0 });
+      expect(await storage.getItem("aud/k/a  ")).toEqual({ i: 2 });
     },
   );
 
